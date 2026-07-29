@@ -12,7 +12,7 @@ Build a production-ready REST API and CLI that fetches repositories from GitHub 
     1. `ghreposscorer-domain-core`: 100% Pure Java 25 (0 external framework dependencies).
     2. `ghreposscorer-services-springboot`: Spring Boot 4.1.0 + OpenFeign + Resilience4j + Spring Cache + SpringDoc OpenAPI.
     3. `ghreposscorer-services-quarkus`: Quarkus 3.38.0 + JAX-RS / RESTEasy Reactive + SmallRye Fault Tolerance + Quarkus Cache + SmallRye OpenAPI.
-    4. `ghreposscorer-util-cli`: Quarkus PicoCLI + GraalVM 25 Native Image binary. Reuses `app-quarkus` infrastructure without code duplication.
+    4. `ghreposscorer-util-cli`: Quarkus PicoCLI + GraalVM 25 Native Image binary. Reuses `ghreposscorer-services-quarkus` infrastructure without code duplication.
 
 ## 3. Domain Core Specifications (`domain-core`)
 - **Purity Rule:** ZERO external framework dependencies allowed (No Spring, Quarkus, Jackson, or Lombok).
@@ -50,6 +50,13 @@ $$Score = (w_{stars} \times Stars) + (w_{forks} \times Forks) + \left(w_{recency
 - **Dynamic Scoring Config:**
     - `GET /api/v1/config/scoring` -> Returns current weights ($w_{stars}, w_{forks}, w_{recency}, \lambda$).
     - `PUT /api/v1/config/scoring` -> Dynamically updates weights and invalidates score cache.
+- **OpenAPI & Swagger UI Documentation:**
+    - **Spring Boot (`ghreposscorer-services-springboot`):**
+        - OpenAPI Spec: `/v3/api-docs`
+        - Interactive Swagger UI: `/swagger-ui.html`
+    - **Quarkus (`ghreposscorer-services-quarkus`):**
+        - OpenAPI Spec: `/q/openapi`
+        - Interactive Swagger UI: `/q/swagger-ui`
 
 ## 6. Testing & Testcontainers
 - **Unit Tests:** Pure Java unit tests in `ghreposscorer-domain-core` covering scoring logic and decay edge cases.
