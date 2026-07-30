@@ -17,25 +17,83 @@ alns-rcpharm-ghrepos-scorer/
 └── k8s/                               # Kubernetes Manifests (Scoped under namespace alns-rcpharm-ghrepos-scorer)
 ```
 
-### Module Responsibilities
+### 🗺️ System Architecture Diagram
 
-1. **`ghreposscorer-domain-core`**:
-   - Contains pure Java 25 domain records (`GitHubRepository`, `PopularityScore`, `ScoreConfig`), use case interfaces (Input Ports), and outbound contract interfaces (Output Ports).
-   - Holds the domain popularity algorithm, recency decay calculator, and RFC 5988 `Link` header pagination parser without any framework annotations.
+```mermaid
+flowchart TD
+    subgraph Clients["Clients / Consumers"]
+        CLI["CLI Tool (PicoCLI / Native)"]
+        HTTP["HTTP API Clients / Web"]
+    end
 
-2. **`ghreposscorer-services-springboot`**:
-   - REST API runner exposed on port `8080`.
-   - Outbound integration via **Spring Cloud OpenFeign** with **Resilience4j** Circuit Breaker and Rate Limiter.
-   - Caffeine & Redis caching layer with background Cache Warmer service.
+    subgraph AdaptersIn["Inbound Adapters (REST Controllers)"]
+        SpringCtrl["GitHubScoreController (Spring Boot 4)"]
+        QuarkusRes["GitHubScoreResource (Quarkus 3)"]
+    end
 
-3. **`ghreposscorer-services-quarkus`**:
-   - High-performance reactive REST API runner exposed on port `8081`.
-   - Outbound integration via **MicroProfile REST Client Reactive** with **SmallRye Fault Tolerance**.
-   - Serves as the CDI provider for the CLI module.
+    subgraph DomainCore["Domain Core (Pure Java 25)"]
+        UseCase["CalculatePopularityUseCase"]
+        ConfigUseCase["UpdateScoreConfigUseCase"]
+        Service["PopularityCalculatorService"]
+        DecayCalc["RecencyDecayCalculator"]
+        ConfigModel["ScoreConfig (Record)"]
+    end
 
-4. **`ghreposscorer-util-cli`**:
-   - Standalone CLI utility using **PicoCLI** compiled to a native GraalVM 25 binary.
-   - Directly reuses `ghreposscorer-services-quarkus` infrastructure without code duplication.
+    subgraph AdaptersOut["Outbound Adapters"]
+        SpringAdapter["GitHubRepositorySpringAdapter (OpenFeign)"]
+        QuarkusAdapter["GitHubRepositoryQuarkusAdapter (MicroProfile REST)"]
+        RedisCache["Redis / Caffeine Cache"]
+    end
+
+    subgraph External["External Services"]
+        GHApi["GitHub Search API (v3)"]
+    end
+
+    CLI --> QuarkusRes
+    HTTP --> SpringCtrl
+    HTTP --> QuarkusRes
+
+    SpringCtrl --> UseCase
+    QuarkusRes --> UseCase
+
+    UseCase --> Service
+    ConfigUseCase --> Service
+    Service --> DecayCalc
+    Service --> ConfigModel
+
+    Service --> SpringAdapter
+    Service --> QuarkusAdapter
+
+    SpringAdapter --> RedisCache
+    SpringAdapter --> GHApi
+
+    QuarkusAdapter --> RedisCache
+    QuarkusAdapter --> GHApi
+```
+
+---
+
+## 💡 Engineering Trade-Offs & Design Rationale
+
+> *"Implementing software is always about trade-offs... balancing between clarity and getting-things-done."*
+
+### 1. Hexagonal Architecture (Ports & Adapters)
+- **Trade-off:** Requires explicit separation between core domain interfaces (Ports) and infrastructure implementations (Adapters), increasing initial file count.
+- **Rationale:** Ensures `domain-core` has **zero external dependencies** (no Spring, Quarkus, or Jakarta annotations). Core scoring rules can be tested in milliseconds without booting a Spring context or CDI container.
+
+### 2. Dual Microservice Runners (Spring Boot 4 vs Quarkus 3)
+- **Trade-off:** Maintaining configuration parity across two distinct frameworks.
+- **Rationale:** 
+  - **Spring Boot 4:** Ideal for enterprise ecosystems with widespread OpenFeign and Resilience4j support.
+  - **Quarkus 3:** Delivers sub-second startup (~10ms) and minimal RAM footprint (~35MB), enabling instant native compilation via GraalVM for the PicoCLI runner.
+
+### 3. Caching Strategy & Async Cache Warming
+- **Trade-off:** Stale cache risks vs API rate limits.
+- **Rationale:** GitHub search API allows only 10 requests/minute unauthenticated (30 req/min authenticated). We employ a two-tier caching mechanism (Caffeine in-memory + Redis distributed cache). When scoring parameters are updated (`PUT /api/v1/config/scoring`), cache is invalidated and a background `ManagedExecutor` asynchronously warms cache entries non-blocking.
+
+### 4. RFC 5988 Link Header Pagination & Delay Safeguards
+- **Trade-off:** Sequential HTTP round-trips vs API rate throttling.
+- **Rationale:** Instead of hardcoding page numbers, adapters follow the standard `rel="next"` URI sent by GitHub's `Link` header up to `maxPagesToFetch`. A configurable delay (`delayBetweenGHApiRequestsMillis`) prevents secondary rate limits.
 
 ---
 
@@ -50,16 +108,6 @@ $$Score = (w_{stars} \times Stars) + (w_{forks} \times Forks) + \left(w_{recency
 - **$w_{forks}$**: $1.2$
 - **$w_{recency}$**: $0.8$
 - **$\lambda$ (Decay Factor)**: $0.01$
-
-> **Dynamic Configuration:** Weights can be modified at runtime via `PUT /api/v1/config/scoring`, automatically invalidating cached repository scores and triggering non-blocking background cache warming.
-
----
-
-## 🛡️ GitHub API Integration, Rate Limit & Pagination
-
-- **RFC 5988 Pagination (`Link` Header):** When enabled via `ScoreConfig.shouldHandleGHApiPagination`, the HTTP adapters dynamically follow the `rel="next"` URI provided in response headers up to `ScoreConfig.maxPagesToFetch`.
-- **Rate Limit & Delay Safeguards:** Includes a configurable delay (`ScoreConfig.delayBetweenGHApiRequestsMillis`) between page requests to prevent rate limit throttling.
-- **Authentication:** Supports optional GitHub Personal Access Tokens via the `GITHUB_TOKEN` environment variable to increase quota limits.
 
 ---
 
