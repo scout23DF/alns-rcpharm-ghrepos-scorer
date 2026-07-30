@@ -62,10 +62,20 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
                 responseEntity.getBody().getItems().stream().map(this::mapToDomain).forEach(accumulated::add);
             }
 
-            String linkHeader = responseEntity.getHeaders().getFirst("Link");
+            String linkHeader = responseEntity.getHeaders().getFirst("link");
             Optional<URI> nextUriOpt = GitHubLinkHeaderParser.extractNextPageUri(linkHeader);
 
             while (handlePagination && nextUriOpt.isPresent() && pageCount < maxPages) {
+                Long delay = config != null ? config.delayBetweenGHApiRequestsMillis() : null;
+                if (delay != null && delay > 0) {
+                    try {
+                        Thread.sleep(delay);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+
                 URI nextUri = nextUriOpt.get();
                 log.info("Fetching next page {} from URI: {}", pageCount + 1, nextUri);
 
@@ -78,7 +88,10 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
                     nextResponse.getBody().getItems().stream().map(this::mapToDomain).forEach(accumulated::add);
                 }
 
-                linkHeader = nextResponse.getHeaders().getFirst("Link");
+                linkHeader = nextResponse.getHeaders().getFirst("link");
+                if (linkHeader == null) {
+                    linkHeader = nextResponse.getHeaders().getFirst("Link");
+                }
                 nextUriOpt = GitHubLinkHeaderParser.extractNextPageUri(linkHeader);
             }
         } catch (Exception e) {

@@ -55,7 +55,7 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
         int pageCount = 0;
 
         try (Response response = gitHubRestClient.searchRepositories(
-                query, "stars", "desc", 100, "alns-rcpharm-ghrepos-scorer", authHeader)) {
+                query, "stars", "desc", 100, "alns-rcpharm-ghrepos-scorer-quarkus", authHeader)) {
 
             pageCount++;
             GitHubSearchResponseDto dto = response.readEntity(GitHubSearchResponseDto.class);
@@ -63,15 +63,25 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
                 dto.getItems().stream().map(this::mapToDomain).forEach(accumulated::add);
             }
 
-            String linkHeader = response.getHeaderString("Link");
+            String linkHeader = response.getHeaderString("link");
             Optional<URI> nextUriOpt = GitHubLinkHeaderParser.extractNextPageUri(linkHeader);
 
             while (handlePagination && nextUriOpt.isPresent() && pageCount < maxPages) {
+                Long delay = config != null ? config.delayBetweenGHApiRequestsMillis() : null;
+                if (delay != null && delay > 0) {
+                    try {
+                        Thread.sleep(delay);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+
                 URI nextUri = nextUriOpt.get();
                 log.info("Fetching next page " + (pageCount + 1) + " from URI: " + nextUri);
 
                 try (Response nextResponse = gitHubRestClient.searchRepositoriesByUri(
-                        nextUri, "alns-rcpharm-ghrepos-scorer", authHeader)) {
+                        nextUri, "alns-rcpharm-ghrepos-scorer-quarkus", authHeader)) {
 
                     pageCount++;
                     GitHubSearchResponseDto nextDto = nextResponse.readEntity(GitHubSearchResponseDto.class);
@@ -79,7 +89,10 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
                         nextDto.getItems().stream().map(this::mapToDomain).forEach(accumulated::add);
                     }
 
-                    linkHeader = nextResponse.getHeaderString("Link");
+                    linkHeader = nextResponse.getHeaderString("link");
+                    if (linkHeader == null) {
+                        linkHeader = nextResponse.getHeaderString("Link");
+                    }
                     nextUriOpt = GitHubLinkHeaderParser.extractNextPageUri(linkHeader);
                 }
             }

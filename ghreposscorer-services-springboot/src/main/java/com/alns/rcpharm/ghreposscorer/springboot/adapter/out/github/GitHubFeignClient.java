@@ -17,14 +17,14 @@ public interface GitHubFeignClient {
             @RequestParam("order") String order,
             @RequestParam("per_page") int perPage,
             @RequestParam(value = "page", defaultValue = "1") int page,
-            @RequestHeader(value = "User-Agent", defaultValue = "alns-rcpharm-ghrepos-scorer") String userAgent,
+            @RequestHeader(value = "User-Agent", defaultValue = "alns-rcpharm-ghrepos-scorer-spring") String userAgent,
             @RequestHeader(value = "Authorization", required = false) String authorization
     );
 
     @GetMapping(headers = {"Accept=application/vnd.github.v3+json"})
     ResponseEntity<GitHubSearchResponseDto> searchRepositoriesByUri(
             java.net.URI targetUri,
-            @RequestHeader(value = "User-Agent", defaultValue = "alns-rcpharm-ghrepos-scorer") String userAgent,
+            @RequestHeader(value = "User-Agent", defaultValue = "alns-rcpharm-ghrepos-scorer-spring") String userAgent,
             @RequestHeader(value = "Authorization", required = false) String authorization
     );
 }
