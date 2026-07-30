@@ -4,6 +4,25 @@
 
 ---
 
+## 🤖 AI-Assisted Engineering & Spec-Driven Development (SDD)
+
+This project was engineered leveraging **Google Antigravity (AGY)** powered by **Gemini** models, adhering to a **Spec-Driven Development (SDD)** paradigm from initial architecture to final deployment manifests.
+
+### 🎯 How AI Agents & SDD Were Leveraged:
+1. **Spec-First Engineering**:
+   - Technical specifications, domain models, and architectural boundaries were established prior to implementation.
+   - The AI agent operated under strict constraints: pure Java 25 domain model with zero framework dependencies, Hexagonal Ports & Adapters, RFC 5988 Link header pagination, and explicit error handling contracts.
+
+2. **Iterative Autonomous Cycles**:
+   - Implementation progressed through structured, test-verified cycles: `domain-core` calculation logic $\rightarrow$ `services-springboot` adapter $\rightarrow$ `services-quarkus` adapter $\rightarrow$ `util-cli` GraalVM native binary $\rightarrow$ Docker & Kubernetes infrastructure.
+   - Every phase was empirically validated through automated unit tests (`JUnit 5`, `AssertJ`) and integration tests (`Testcontainers Redis`, `WireMock`).
+
+3. **Software Craftsmanship & Ownership**:
+   - AI served as a powerful force multiplier for boilerplate, cross-framework wiring (Spring Cloud Feign vs Quarkus MicroProfile REST Client), and GraalVM native configuration.
+   - All architectural decisions (Hexagonal boundaries, two-tier caching, async cache warming, RFC 7807 ProblemDetails) remain fully understood, documented, and justified.
+
+---
+
 ## 📐 Architecture & Module Design
 
 The project strictly follows **Hexagonal Architecture (Ports & Adapters)** to decouple core business logic from framework dependencies.
