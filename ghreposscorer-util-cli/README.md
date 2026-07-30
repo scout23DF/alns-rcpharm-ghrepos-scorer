@@ -6,7 +6,7 @@ Command-line utility (CLI) for querying and displaying GitHub repository popular
 
 ## 🚀 How to Run the CLI Application
 
-### Method 1: Running via Executable JAR (Recommended)
+### Method 1: Running via Executable JAR (Standard JVM)
 
 #### 1. Build the CLI package:
 ```bash
@@ -32,7 +32,35 @@ mvn clean package -pl ghreposscorer-util-cli -am
 
 ---
 
-### Method 2: Running via Quarkus Dev Mode
+### Method 2: Native Executable Compilation (GraalVM 25)
+
+Building a GraalVM native binary produces a standalone executable file with **instant startup (~10ms)**, low memory usage, and no JVM requirement at runtime.
+
+#### Option A: Building with local GraalVM installed
+```bash
+mvn package -Pnative -pl ghreposscorer-util-cli -am
+```
+
+#### Option B: Building via Docker Container (No local GraalVM required)
+```bash
+mvn package -Pnative -Dquarkus.native.container-build=true -pl ghreposscorer-util-cli -am
+```
+
+#### Execute Native Executable Binary:
+
+- **Run Help**:
+  ```bash
+  ./ghreposscorer-util-cli/target/ghreposscorer-util-cli-1.0.0-SNAPSHOT-runner --help
+  ```
+
+- **Run Ranking Query**:
+  ```bash
+  ./ghreposscorer-util-cli/target/ghreposscorer-util-cli-1.0.0-SNAPSHOT-runner -l Go -n 5
+  ```
+
+---
+
+### Method 3: Running via Quarkus Dev Mode
 
 ```bash
 mvn quarkus:dev -pl ghreposscorer-util-cli -Dquarkus.args="-l Python -n 5"
