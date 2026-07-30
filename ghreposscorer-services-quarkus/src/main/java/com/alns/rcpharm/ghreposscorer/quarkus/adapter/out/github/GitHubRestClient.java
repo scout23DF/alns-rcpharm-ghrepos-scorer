@@ -8,11 +8,11 @@ import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;
 
 import java.net.URI;
 
-@Path("/search/repositories")
 @RegisterRestClient(configKey = "github-api")
 public interface GitHubRestClient {
 
     @GET
+    @Path("/search/repositories")
     @Produces(MediaType.APPLICATION_JSON)
     Response searchRepositories(
             @QueryParam("q") String query,
