@@ -50,12 +50,12 @@ mvn package -Pnative -Dquarkus.native.container-build=true -pl ghreposscorer-uti
 
 - **Run Help**:
   ```bash
-  ./ghreposscorer-util-cli/target/ghreposscorer-util-cli-1.0.0-SNAPSHOT-runner --help
+  ./ghreposscorer-util-cli/target/ghreposscorer-util-cli-runner --help
   ```
 
 - **Run Ranking Query**:
   ```bash
-  ./ghreposscorer-util-cli/target/ghreposscorer-util-cli-1.0.0-SNAPSHOT-runner -l Go -n 5
+  ./ghreposscorer-util-cli/target/ghreposscorer-util-cli-runner -l Go -n 5
   ```
 
 ---
