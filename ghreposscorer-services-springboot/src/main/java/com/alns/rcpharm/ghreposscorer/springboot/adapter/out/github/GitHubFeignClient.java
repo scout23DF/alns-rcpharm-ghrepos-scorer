@@ -20,4 +20,11 @@ public interface GitHubFeignClient {
             @RequestHeader(value = "User-Agent", defaultValue = "alns-rcpharm-ghrepos-scorer") String userAgent,
             @RequestHeader(value = "Authorization", required = false) String authorization
     );
+
+    @GetMapping(headers = {"Accept=application/vnd.github.v3+json"})
+    ResponseEntity<GitHubSearchResponseDto> searchRepositoriesByUri(
+            java.net.URI targetUri,
+            @RequestHeader(value = "User-Agent", defaultValue = "alns-rcpharm-ghrepos-scorer") String userAgent,
+            @RequestHeader(value = "Authorization", required = false) String authorization
+    );
 }
