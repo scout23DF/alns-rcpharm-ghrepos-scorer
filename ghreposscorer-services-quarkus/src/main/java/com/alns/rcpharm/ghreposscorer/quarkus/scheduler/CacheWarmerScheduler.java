@@ -26,6 +26,10 @@ public class CacheWarmerScheduler {
             try {
                 calculatePopularityUseCase.getPopularRepositories(lang, DEFAULT_CREATED_AFTER, 30);
                 log.info("Quarkus cache warmed for language: " + lang);
+                Thread.sleep(2000);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                break;
             } catch (Exception e) {
                 log.error("Failed to warm Quarkus cache for language " + lang + ": " + e.getMessage());
             }

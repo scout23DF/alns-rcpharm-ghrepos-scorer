@@ -37,7 +37,7 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
 
         log.info("Fetching GitHub repositories for query: " + query);
         GitHubSearchResponseDto response = gitHubRestClient.searchRepositories(
-                query, "stars", "desc", 100, "alns-rcpharm-ghrepos-scorer", authHeader
+                query, "stars", "desc", 100, "alns-rcpharm-ghrepos-scorer-quarkus", authHeader
         );
 
         if (response == null || response.getItems() == null) {

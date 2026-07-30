@@ -26,7 +26,7 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
     }
 
     @Override
-    @Cacheable(value = "github-repositories", key = "#language + '-' + #createdAfter.toString()")
+    @Cacheable(value = "github-repositories", key = "#language + '-' + #createdAfter")
     @CircuitBreaker(name = "githubApi", fallbackMethod = "fetchGitHubRepositoriesFallback")
     @RateLimiter(name = "githubApi")
     public List<GitHubRepository> fetchGitHubRepositories(String language, LocalDate createdAfter) {
@@ -36,7 +36,7 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
 
         log.info("Fetching GitHub repositories for query: {}", query);
         GitHubSearchResponseDto response = gitHubFeignClient.searchRepositories(
-                query, "stars", "desc", 100, "alns-rcpharm-ghrepos-scorer", authHeader
+                query, "stars", "desc", 100, "alns-rcpharm-ghrepos-scorer-springboot", authHeader
         );
 
         if (response == null || response.getItems() == null) {
