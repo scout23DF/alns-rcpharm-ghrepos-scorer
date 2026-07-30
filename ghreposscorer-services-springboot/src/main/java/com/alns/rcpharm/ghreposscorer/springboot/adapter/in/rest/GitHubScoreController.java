@@ -53,10 +53,6 @@ public class GitHubScoreController {
     @Operation(summary = "Update scoring configuration and invalidate repository score cache")
     public ResponseEntity<ScoreConfig> updateConfig(@RequestBody ScoreConfig newConfig) {
         ScoreConfig updated = updateScoreConfigUseCase.updateConfig(newConfig);
-        Cache cache = cacheManager.getCache("github-repositories");
-        if (cache != null) {
-            cache.clear();
-        }
         return ResponseEntity.ok(updated);
     }
 }

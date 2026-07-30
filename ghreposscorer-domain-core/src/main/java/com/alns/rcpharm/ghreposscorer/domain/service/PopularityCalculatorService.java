@@ -5,6 +5,8 @@ import com.alns.rcpharm.ghreposscorer.domain.model.GitHubRepository;
 import com.alns.rcpharm.ghreposscorer.domain.model.ScoreConfig;
 import com.alns.rcpharm.ghreposscorer.domain.port.in.CalculatePopularityUseCase;
 import com.alns.rcpharm.ghreposscorer.domain.port.in.UpdateScoreConfigUseCase;
+import com.alns.rcpharm.ghreposscorer.domain.port.in.WarmCacheUseCase;
+import com.alns.rcpharm.ghreposscorer.domain.port.out.CacheInvalidatorPort;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.GitHubRepositoryPort;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.ScoreConfigStoragePort;
 
@@ -23,18 +25,59 @@ public class PopularityCalculatorService implements CalculatePopularityUseCase, 
 
     private final GitHubRepositoryPort gitHubRepositoryPort;
     private final ScoreConfigStoragePort scoreConfigStoragePort;
+    private final CacheInvalidatorPort cacheInvalidatorPort;
+    private final WarmCacheUseCase warmCacheUseCase;
     private final Clock clock;
 
     public PopularityCalculatorService(GitHubRepositoryPort gitHubRepositoryPort,
                                        ScoreConfigStoragePort scoreConfigStoragePort) {
-        this(gitHubRepositoryPort, scoreConfigStoragePort, Clock.systemUTC());
+        this(gitHubRepositoryPort, scoreConfigStoragePort, null, null, null, Clock.systemUTC());
     }
 
     public PopularityCalculatorService(GitHubRepositoryPort gitHubRepositoryPort,
                                        ScoreConfigStoragePort scoreConfigStoragePort,
                                        Clock clock) {
+        this(gitHubRepositoryPort, scoreConfigStoragePort, null, null, null, clock);
+    }
+
+    public PopularityCalculatorService(GitHubRepositoryPort gitHubRepositoryPort,
+                                       ScoreConfigStoragePort scoreConfigStoragePort,
+                                       CacheInvalidatorPort cacheInvalidatorPort) {
+        this(gitHubRepositoryPort, scoreConfigStoragePort, cacheInvalidatorPort, null, null, Clock.systemUTC());
+    }
+
+    public PopularityCalculatorService(GitHubRepositoryPort gitHubRepositoryPort,
+                                       ScoreConfigStoragePort scoreConfigStoragePort,
+                                       CacheInvalidatorPort cacheInvalidatorPort,
+                                       java.util.concurrent.Executor executor) {
+        this(gitHubRepositoryPort, scoreConfigStoragePort, cacheInvalidatorPort, null, executor, Clock.systemUTC());
+    }
+
+    public PopularityCalculatorService(GitHubRepositoryPort gitHubRepositoryPort,
+                                       ScoreConfigStoragePort scoreConfigStoragePort,
+                                       CacheInvalidatorPort cacheInvalidatorPort,
+                                       WarmCacheUseCase warmCacheUseCase) {
+        this(gitHubRepositoryPort, scoreConfigStoragePort, cacheInvalidatorPort, warmCacheUseCase, null, Clock.systemUTC());
+    }
+
+    public PopularityCalculatorService(GitHubRepositoryPort gitHubRepositoryPort,
+                                       ScoreConfigStoragePort scoreConfigStoragePort,
+                                       CacheInvalidatorPort cacheInvalidatorPort,
+                                       WarmCacheUseCase warmCacheUseCase,
+                                       Clock clock) {
+        this(gitHubRepositoryPort, scoreConfigStoragePort, cacheInvalidatorPort, warmCacheUseCase, null, clock);
+    }
+
+    public PopularityCalculatorService(GitHubRepositoryPort gitHubRepositoryPort,
+                                       ScoreConfigStoragePort scoreConfigStoragePort,
+                                       CacheInvalidatorPort cacheInvalidatorPort,
+                                       WarmCacheUseCase warmCacheUseCase,
+                                       java.util.concurrent.Executor executor,
+                                       Clock clock) {
         this.gitHubRepositoryPort = Objects.requireNonNull(gitHubRepositoryPort, "gitHubRepositoryPort must not be null");
         this.scoreConfigStoragePort = Objects.requireNonNull(scoreConfigStoragePort, "scoreConfigStoragePort must not be null");
+        this.cacheInvalidatorPort = cacheInvalidatorPort;
+        this.warmCacheUseCase = warmCacheUseCase != null ? warmCacheUseCase : new CacheWarmerService(this, this, executor);
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
     }
 
@@ -58,6 +101,15 @@ public class PopularityCalculatorService implements CalculatePopularityUseCase, 
     public ScoreConfig updateConfig(ScoreConfig newConfig) {
         Objects.requireNonNull(newConfig, "newConfig must not be null");
         scoreConfigStoragePort.saveConfig(newConfig);
+
+        if (cacheInvalidatorPort != null) {
+            cacheInvalidatorPort.invalidateCache();
+        }
+
+        if (warmCacheUseCase != null) {
+            warmCacheUseCase.warmCacheAsync();
+        }
+
         return newConfig;
     }
 

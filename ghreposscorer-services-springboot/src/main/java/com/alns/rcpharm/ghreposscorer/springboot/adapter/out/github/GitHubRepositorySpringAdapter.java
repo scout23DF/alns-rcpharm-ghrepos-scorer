@@ -9,6 +9,7 @@ import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
@@ -26,7 +27,7 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
     }
 
     @Override
-    @Cacheable(value = "github-repositories", key = "#language + '-' + #createdAfter")
+    @Cacheable(value = "github-repositories", key = "#language.toLowerCase() + '-' + #createdAfter")
     @CircuitBreaker(name = "githubApi", fallbackMethod = "fetchGitHubRepositoriesFallback")
     @RateLimiter(name = "githubApi")
     public List<GitHubRepository> fetchGitHubRepositories(String language, LocalDate createdAfter) {
@@ -36,10 +37,16 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
 
         log.info("Fetching GitHub repositories for query: {}", query);
         try {
-            GitHubSearchResponseDto response = gitHubFeignClient.searchRepositories(
-                    query, "stars", "desc", 100, "alns-rcpharm-ghrepos-scorer-springboot", authHeader
+            ResponseEntity<GitHubSearchResponseDto> responseEntity = gitHubFeignClient.searchRepositories(
+                    query, "stars", "desc", 100, 1, "alns-rcpharm-ghrepos-scorer-springboot", authHeader
             );
 
+            String linkHeader = responseEntity.getHeaders().getFirst("Link");
+            if (linkHeader != null) {
+                log.debug("GitHub Response Link Header: {}", linkHeader);
+            }
+
+            GitHubSearchResponseDto response = responseEntity.getBody();
             if (response == null || response.getItems() == null) {
                 return Collections.emptyList();
             }

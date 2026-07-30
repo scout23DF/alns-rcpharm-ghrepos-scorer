@@ -1,12 +1,10 @@
 package com.alns.rcpharm.ghreposscorer.domain.service;
 
-import com.alns.rcpharm.ghreposscorer.domain.model.PopularityScore;
 import com.alns.rcpharm.ghreposscorer.domain.model.GitHubRepository;
+import com.alns.rcpharm.ghreposscorer.domain.model.PopularityScore;
 import com.alns.rcpharm.ghreposscorer.domain.model.ScoreConfig;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.GitHubRepositoryPort;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.ScoreConfigStoragePort;
-
-import com.alns.rcpharm.ghreposscorer.domain.service.PopularityCalculatorService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -80,13 +78,28 @@ class PopularityCalculatorServiceTest {
     }
 
     @Test
-    @DisplayName("Should update configuration dynamically")
+    @DisplayName("Should update configuration dynamically, invalidate cache, and run cache warmer")
     void testUpdateConfig() {
-        ScoreConfig newConfig = new ScoreConfig(2.0, 2.0, 1.0, 0.05);
-        ScoreConfig updated = calculatorService.updateConfig(newConfig);
+        MockCacheInvalidator cacheInvalidator = new MockCacheInvalidator();
+        PopularityCalculatorService service = new PopularityCalculatorService(gitHubRepositoryPort, scoreConfigStorage, cacheInvalidator);
+
+        ScoreConfig newConfig = new ScoreConfig(2.0, 2.0, 1.0, 0.05, List.of("Rust", "Zig"), LocalDate.of(2022, 1, 1));
+        ScoreConfig updated = service.updateConfig(newConfig);
 
         assertThat(updated).isEqualTo(newConfig);
-        assertThat(calculatorService.getCurrentConfig()).isEqualTo(newConfig);
+        assertThat(service.getCurrentConfig()).isEqualTo(newConfig);
+        assertThat(service.getCurrentConfig().popularLanguages()).containsExactly("Rust", "Zig");
+        assertThat(service.getCurrentConfig().defaultCreatedAfter()).isEqualTo(LocalDate.of(2022, 1, 1));
+        assertThat(cacheInvalidator.invalidated).isTrue();
+    }
+
+    private static class MockCacheInvalidator implements com.alns.rcpharm.ghreposscorer.domain.port.out.CacheInvalidatorPort {
+        boolean invalidated = false;
+
+        @Override
+        public void invalidateCache() {
+            this.invalidated = true;
+        }
     }
 
     // Static test helpers

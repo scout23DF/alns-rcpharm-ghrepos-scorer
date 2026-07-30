@@ -28,7 +28,7 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
     @Override
     @CacheResult(cacheName = "github-repositories")
     @CircuitBreaker(requestVolumeThreshold = 10, failureRatio = 0.5, delay = 10000, delayUnit = ChronoUnit.MILLIS)
-    @RateLimit(value = 10, window = 1, windowUnit = ChronoUnit.SECONDS)
+    @RateLimit(value = 10, window = 1, windowUnit = ChronoUnit.MINUTES)
     @Fallback(fallbackMethod = "fetchGitHubRepositoriesFallback")
     public List<GitHubRepository> fetchGitHubRepositories(String language, LocalDate createdAfter) {
         String query = String.format("language:%s created:>%s", language, createdAfter.toString());
