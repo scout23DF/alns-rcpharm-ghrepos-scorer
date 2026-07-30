@@ -8,7 +8,27 @@
   - `ghreposscorer-services-quarkus`
   - `ghreposscorer-util-cli`
 - Keep `ghreposscorer-domain-core` 100% pure Java 25 without any external framework annotations.
-- In `hreposscorer-util-cli`, use `quarkus-picocli` and depend on `app-quarkus` to reuse outbound adapters without duplicating code.
+- Follow and obey this package structure:
+  - `ghreposscorer-domain-core`:
+    - `com.alns.rcpharm.ghreposscorer.domain.model`
+    - `com.alns.rcpharm.ghreposscorer.domain.port.in`
+    - `com.alns.rcpharm.ghreposscorer.domain.port.out`
+    - `com.alns.rcpharm.ghreposscorer.domain.service`
+    - `com.alns.rcpharm.ghreposscorer.domain.util`
+  - `ghreposscorer-services-springboot`:
+    - `com.alns.rcpharm.ghreposscorer.springboot.adapter.in.rest`
+    - `com.alns.rcpharm.ghreposscorer.springboot.adapter.out.github`
+    - `com.alns.rcpharm.ghreposscorer.springboot.config`
+    - `com.alns.rcpharm.ghreposscorer.springboot.scheduler`
+  - `ghreposscorer-services-quarkus`:
+    - `com.alns.rcpharm.ghreposscorer.quarkus.adapter.in.rest`
+    - `com.alns.rcpharm.ghreposscorer.quarkus.adapter.out.github`
+    - `com.alns.rcpharm.ghreposscorer.quarkus.config`
+    - `com.alns.rcpharm.ghreposscorer.quarkus.scheduler`
+  - `ghreposscorer-util-cli`:
+    - `com.alns.rcpharm.ghreposscorer.cli`
+    - `com.alns.rcpharm.ghreposscorer.cli.config`    
+- In `ghreposscorer-util-cli`, use `quarkus-picocli` and depend on `ghreposscorer-services-quarkus` to reuse outbound adapters without duplicating code.
 - Provide dynamic scoring configuration endpoints (`PUT/GET /api/v1/config/scoring`) with automatic cache invalidation.
 - Provide background `@Scheduled` cache warmer logic.
 - Provide Testcontainers-based tests with `RedisContainer`.

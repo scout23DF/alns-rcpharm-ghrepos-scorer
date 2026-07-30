@@ -1,7 +1,7 @@
 package com.alns.rcpharm.ghreposscorer.domain.service;
 
 import com.alns.rcpharm.ghreposscorer.domain.model.PopularityScore;
-import com.alns.rcpharm.ghreposscorer.domain.model.Repository;
+import com.alns.rcpharm.ghreposscorer.domain.model.GitHubRepository;
 import com.alns.rcpharm.ghreposscorer.domain.model.ScoreConfig;
 import com.alns.rcpharm.ghreposscorer.domain.port.in.CalculatePopularityUseCase;
 import com.alns.rcpharm.ghreposscorer.domain.port.in.UpdateScoreConfigUseCase;
@@ -43,7 +43,7 @@ public class PopularityCalculatorService implements CalculatePopularityUseCase, 
         Objects.requireNonNull(language, "language must not be null");
         Objects.requireNonNull(createdAfter, "createdAfter must not be null");
 
-        List<Repository> repositories = gitHubRepositoryPort.fetchRepositories(language, createdAfter);
+        List<GitHubRepository> repositories = gitHubRepositoryPort.fetchGitHubRepositories(language, createdAfter);
         ScoreConfig config = getCurrentConfig();
         Instant now = clock.instant();
 
@@ -71,7 +71,7 @@ public class PopularityCalculatorService implements CalculatePopularityUseCase, 
      * Calculates the popularity score using weighted metrics and recency decay factor:
      * Score = (wStars * Stars) + (wForks * Forks) + (wRecency * (100 / (1 + lambda * DaysSinceLastPush)))
      */
-    public PopularityScore calculatePopularityScore(Repository repository, ScoreConfig config, Instant now) {
+    public PopularityScore calculatePopularityScore(GitHubRepository repository, ScoreConfig config, Instant now) {
         long daysSinceLastPush = 0;
         if (repository.pushedAt() != null && repository.pushedAt().isBefore(now)) {
             daysSinceLastPush = Duration.between(repository.pushedAt(), now).toDays();

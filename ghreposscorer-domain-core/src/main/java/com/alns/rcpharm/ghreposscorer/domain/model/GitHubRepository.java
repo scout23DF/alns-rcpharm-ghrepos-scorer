@@ -6,7 +6,7 @@ import java.util.Objects;
 /**
  * Domain record representing a GitHub repository.
  */
-public record Repository(
+public record GitHubRepository(
     String id,
     String name,
     String fullName,
@@ -17,7 +17,7 @@ public record Repository(
     long forks,
     Instant pushedAt
 ) {
-    public Repository {
+    public GitHubRepository {
         Objects.requireNonNull(id, "id must not be null");
         Objects.requireNonNull(name, "name must not be null");
         Objects.requireNonNull(fullName, "fullName must not be null");

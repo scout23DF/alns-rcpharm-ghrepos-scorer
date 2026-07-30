@@ -1,7 +1,7 @@
 package com.alns.rcpharm.ghreposscorer.domain.service;
 
 import com.alns.rcpharm.ghreposscorer.domain.model.PopularityScore;
-import com.alns.rcpharm.ghreposscorer.domain.model.Repository;
+import com.alns.rcpharm.ghreposscorer.domain.model.GitHubRepository;
 import com.alns.rcpharm.ghreposscorer.domain.model.ScoreConfig;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.GitHubRepositoryPort;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.ScoreConfigStoragePort;
@@ -40,7 +40,7 @@ class PopularityCalculatorServiceTest {
     @DisplayName("Should calculate score correctly using default weights and zero days decay")
     void testCalculateScoreZeroDaysDecay() {
         // Repo pushed today (0 days since last push)
-        Repository repo = new Repository("1", "repo-1", "org/repo-1", "http://github.com/org/repo-1",
+        GitHubRepository repo = new GitHubRepository("1", "repo-1", "org/repo-1", "http://github.com/org/repo-1",
                 "Desc", "java", 100, 50, FIXED_NOW);
 
         ScoreConfig config = ScoreConfig.defaultConfig(); // wStars=1.0, wForks=1.2, wRecency=0.8, lambda=0.01
@@ -54,7 +54,7 @@ class PopularityCalculatorServiceTest {
     @DisplayName("Should apply recency decay when repository was pushed 100 days ago")
     void testCalculateScoreWithRecencyDecay() {
         Instant pushed100DaysAgo = FIXED_NOW.minus(100, ChronoUnit.DAYS);
-        Repository repo = new Repository("2", "repo-2", "org/repo-2", "http://github.com/org/repo-2",
+        GitHubRepository repo = new GitHubRepository("2", "repo-2", "org/repo-2", "http://github.com/org/repo-2",
                 "Desc", "kotlin", 100, 50, pushed100DaysAgo);
 
         ScoreConfig config = ScoreConfig.defaultConfig();
@@ -68,8 +68,8 @@ class PopularityCalculatorServiceTest {
     @Test
     @DisplayName("Should sort repositories descending by score and limit output")
     void testGetPopularRepositoriesSortingAndLimit() {
-        Repository repoLow = new Repository("1", "low", "org/low", "http://gh/low", "Low", "java", 10, 5, FIXED_NOW);
-        Repository repoHigh = new Repository("2", "high", "org/high", "http://gh/high", "High", "java", 500, 200, FIXED_NOW);
+        GitHubRepository repoLow = new GitHubRepository("1", "low", "org/low", "http://gh/low", "Low", "java", 10, 5, FIXED_NOW);
+        GitHubRepository repoHigh = new GitHubRepository("2", "high", "org/high", "http://gh/high", "High", "java", 500, 200, FIXED_NOW);
 
         gitHubRepositoryPort.setRepositories(List.of(repoLow, repoHigh));
 
@@ -105,14 +105,14 @@ class PopularityCalculatorServiceTest {
     }
 
     private static class InMemoryGitHubRepositoryPort implements GitHubRepositoryPort {
-        private List<Repository> repositories = List.of();
+        private List<GitHubRepository> repositories = List.of();
 
-        public void setRepositories(List<Repository> repositories) {
+        public void setRepositories(List<GitHubRepository> repositories) {
             this.repositories = repositories;
         }
 
         @Override
-        public List<Repository> fetchRepositories(String language, LocalDate createdAfter) {
+        public List<GitHubRepository> fetchGitHubRepositories(String language, LocalDate createdAfter) {
             return repositories;
         }
     }

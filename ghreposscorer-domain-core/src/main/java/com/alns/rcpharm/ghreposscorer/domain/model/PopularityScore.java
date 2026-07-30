@@ -4,10 +4,10 @@ import java.time.Instant;
 import java.util.Objects;
 
 /**
- * Domain record encapsulating a Repository along with its calculated popularity score and calculation timestamp.
+ * Domain record encapsulating a GitHubRepository along with its calculated popularity score and calculation timestamp.
  */
 public record PopularityScore(
-    Repository repository,
+    GitHubRepository repository,
     double score,
     Instant calculatedAt
 ) {

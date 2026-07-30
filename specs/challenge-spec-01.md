@@ -10,16 +10,16 @@ Build a production-ready REST API and CLI that fetches repositories from GitHub 
 - **Architecture:** Pure Hexagonal Architecture (Ports & Adapters)
 - **Modules / Runners:**
     1. `ghreposscorer-domain-core`: 100% Pure Java 25 (0 external framework dependencies).
-    2. `ghreposscorer-services-springboot`: Spring Boot 4.1.0 + OpenFeign + Resilience4j + Spring Cache + SpringDoc OpenAPI.
-    3. `ghreposscorer-services-quarkus`: Quarkus 3.38.0 + JAX-RS / RESTEasy Reactive + SmallRye Fault Tolerance + Quarkus Cache + SmallRye OpenAPI.
+    2. `ghreposscorer-services-springboot`: Spring Boot 4.1.0 + OpenFeign + Resilience4j + Spring Cache + SpringDoc OpenAPI + Swagger-UI.
+    3. `ghreposscorer-services-quarkus`: Quarkus 3.38.0 + JAX-RS / RESTEasy Reactive + SmallRye Fault Tolerance + Quarkus Cache + SmallRye OpenAPI + Swagger-UI.
     4. `ghreposscorer-util-cli`: Quarkus PicoCLI + GraalVM 25 Native Image binary. Reuses `ghreposscorer-services-quarkus` infrastructure without code duplication.
 
 ## 3. Domain Core Specifications (`domain-core`)
 - **Purity Rule:** ZERO external framework dependencies allowed (No Spring, Quarkus, Jackson, or Lombok).
 
 ### Domain Records:
-- `Repository(String id, String name, String fullName, String htmlUrl, String description, String language, long stars, long forks, Instant pushedAt)`
-- `PopularityScore(Repository repository, double score, Instant calculatedAt)`
+- `GitHubRepository(String id, String name, String fullName, String htmlUrl, String description, String language, long stars, long forks, Instant pushedAt)`
+- `PopularityScore(GitHubRepository repository, double score, Instant calculatedAt)`
 - `ScoreConfig(double wStars, double wForks, double wRecency, double decayLambda)`
 
 ### Ports:
@@ -27,7 +27,7 @@ Build a production-ready REST API and CLI that fetches repositories from GitHub 
     - `CalculatePopularityUseCase`: `List<PopularityScore> getPopularRepositories(String language, LocalDate createdAfter, int limit)`
     - `UpdateScoreConfigUseCase`: `ScoreConfig updateConfig(ScoreConfig newConfig)`, `ScoreConfig getCurrentConfig()`
 - **Output Ports:**
-    - `GitHubRepositoryPort`: `List<Repository> fetchRepositories(String language, LocalDate createdAfter)`
+    - `GitHubRepositoryPort`: `List<GitHubRepository> fetchGitHubRepositories(String language, LocalDate createdAfter)`
     - `ScoreConfigStoragePort`: `ScoreConfig loadConfig()`, `void saveConfig(ScoreConfig config)`
 
 ### Scoring Algorithm Formula:
@@ -45,7 +45,7 @@ $$Score = (w_{stars} \times Stars) + (w_{forks} \times Forks) + \left(w_{recency
 - **Cache Invalidation:** Updating score configuration via `PUT /api/v1/config/scoring` automatically flushes/invalidates repository score caches.
 
 ## 5. Dynamic Configuration & REST API Endpoints
-- **Popularity Search:** `GET /api/v1/repositories/popular`
+- **Popularity Search:** `GET /api/v1/github-repositories/popular`
     - Query Params: `language` (required), `created_after` (required, ISO `YYYY-MM-DD`), `limit` (optional, default 30).
 - **Dynamic Scoring Config:**
     - `GET /api/v1/config/scoring` -> Returns current weights ($w_{stars}, w_{forks}, w_{recency}, \lambda$).
