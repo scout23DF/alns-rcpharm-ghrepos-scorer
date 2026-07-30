@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-deployment
+  namespace: alns-rcpharm-ghrepos-scorer
+  labels:
+    app: spring-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: spring-service
+  template:
+    metadata:
+      labels:
+        app: spring-service
+    spec:
+      containers:
+        - name: ghreposscorer-springboot
+          image: ghreposscorer-springboot:1.0.0-SNAPSHOT
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: ghreposscorer-config
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"

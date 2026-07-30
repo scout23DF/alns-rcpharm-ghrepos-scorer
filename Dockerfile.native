@@ -1,0 +1,25 @@
+# Multi-stage Dockerfile based on GraalVM 25 for Quarkus Native compilation
+FROM ghcr.io/graalvm/native-image-community:25 AS native-builder
+WORKDIR /app
+
+# Copy project source files
+COPY pom.xml .
+COPY ghreposscorer-domain-core ghreposscorer-domain-core
+COPY ghreposscorer-services-springboot ghreposscorer-services-springboot
+COPY ghreposscorer-services-quarkus ghreposscorer-services-quarkus
+COPY ghreposscorer-util-cli ghreposscorer-util-cli
+
+# Install Maven inside GraalVM container stage
+RUN microdnf install -y maven
+
+# Build Quarkus Native executable
+RUN mvn clean package -Pnative -DskipTests -pl ghreposscorer-services-quarkus -am
+
+# Minimal runtime stage for native binary execution
+FROM quay.io/quarkus/quarkus-micro-image:2.0
+WORKDIR /work/
+COPY --from=native-builder /app/ghreposscorer-services-quarkus/target/*-runner /work/application
+
+EXPOSE 8081
+USER 1001
+CMD ["./application", "-Dquarkus.http.host=0.0.0.0"]
