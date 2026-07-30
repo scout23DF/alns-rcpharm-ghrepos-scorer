@@ -120,7 +120,11 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
                         return;
                     }
 
+                    ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
                     java.util.concurrent.CompletableFuture.runAsync(() -> {
+                        if (contextClassLoader != null) {
+                            Thread.currentThread().setContextClassLoader(contextClassLoader);
+                        }
                         String query = String.format("language:%s created:>%s", language, createdAfter.toString());
                         String token = System.getenv("GITHUB_TOKEN");
                         String authHeader = (token != null && !token.isBlank()) ? "Bearer " + token : null;
