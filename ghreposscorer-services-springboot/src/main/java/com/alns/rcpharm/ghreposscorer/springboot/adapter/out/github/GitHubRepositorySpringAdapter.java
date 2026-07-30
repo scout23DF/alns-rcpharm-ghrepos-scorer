@@ -35,17 +35,22 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
         String authHeader = (token != null && !token.isBlank()) ? "Bearer " + token : null;
 
         log.info("Fetching GitHub repositories for query: {}", query);
-        GitHubSearchResponseDto response = gitHubFeignClient.searchRepositories(
-                query, "stars", "desc", 100, "alns-rcpharm-ghrepos-scorer-springboot", authHeader
-        );
+        try {
+            GitHubSearchResponseDto response = gitHubFeignClient.searchRepositories(
+                    query, "stars", "desc", 100, "alns-rcpharm-ghrepos-scorer-springboot", authHeader
+            );
 
-        if (response == null || response.getItems() == null) {
+            if (response == null || response.getItems() == null) {
+                return Collections.emptyList();
+            }
+
+            return response.getItems().stream()
+                    .map(this::mapToDomain)
+                    .toList();
+        } catch (Exception e) {
+            log.warn("GitHub API request for query '{}' returned error: {}. Returning empty list.", query, e.getMessage());
             return Collections.emptyList();
         }
-
-        return response.getItems().stream()
-                .map(this::mapToDomain)
-                .toList();
     }
 
     public List<GitHubRepository> fetchGitHubRepositoriesFallback(String language, LocalDate createdAfter, Throwable t) {

@@ -36,17 +36,22 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
         String authHeader = (token != null && !token.isBlank()) ? "Bearer " + token : null;
 
         log.info("Fetching GitHub repositories for query: " + query);
-        GitHubSearchResponseDto response = gitHubRestClient.searchRepositories(
-                query, "stars", "desc", 100, "alns-rcpharm-ghrepos-scorer-quarkus", authHeader
-        );
+        try {
+            GitHubSearchResponseDto response = gitHubRestClient.searchRepositories(
+                    query, "stars", "desc", 100, "alns-rcpharm-ghrepos-scorer", authHeader
+            );
 
-        if (response == null || response.getItems() == null) {
+            if (response == null || response.getItems() == null) {
+                return Collections.emptyList();
+            }
+
+            return response.getItems().stream()
+                    .map(this::mapToDomain)
+                    .toList();
+        } catch (Exception e) {
+            log.warn("GitHub API request for query '" + query + "' returned error: " + e.getMessage() + ". Returning empty list.");
             return Collections.emptyList();
         }
-
-        return response.getItems().stream()
-                .map(this::mapToDomain)
-                .toList();
     }
 
     public List<GitHubRepository> fetchGitHubRepositoriesFallback(String language, LocalDate createdAfter) {

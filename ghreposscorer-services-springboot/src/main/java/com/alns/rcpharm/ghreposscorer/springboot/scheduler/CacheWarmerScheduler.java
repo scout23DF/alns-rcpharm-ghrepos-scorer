@@ -29,7 +29,7 @@ public class CacheWarmerScheduler {
             try {
                 calculatePopularityUseCase.getPopularRepositories(lang, DEFAULT_CREATED_AFTER, 30);
                 log.info("Cache warmed for language: {}", lang);
-                Thread.sleep(2000);
+                Thread.sleep(6000);
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
                 break;
