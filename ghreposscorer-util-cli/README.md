@@ -36,7 +36,7 @@ mvn clean package -pl ghreposscorer-util-cli -am
 
 Building a GraalVM native binary produces a standalone executable file with **instant startup (~10ms)**, low memory usage, and no JVM requirement at runtime.
 
-#### Option A: Building with local GraalVM installed
+#### Option A: Building with local GraalVM 25 installed
 ```bash
 mvn package -Pnative -pl ghreposscorer-util-cli -am
 ```
