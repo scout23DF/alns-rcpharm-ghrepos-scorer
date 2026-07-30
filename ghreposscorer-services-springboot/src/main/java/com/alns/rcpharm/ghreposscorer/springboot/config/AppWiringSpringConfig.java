@@ -1,6 +1,7 @@
 package com.alns.rcpharm.ghreposscorer.springboot.config;
 
 import com.alns.rcpharm.ghreposscorer.domain.model.ScoreConfig;
+import com.alns.rcpharm.ghreposscorer.domain.port.in.CalculatePopularityStreamUseCase;
 import com.alns.rcpharm.ghreposscorer.domain.port.in.CalculatePopularityUseCase;
 import com.alns.rcpharm.ghreposscorer.domain.port.in.UpdateScoreConfigUseCase;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.CacheInvalidatorPort;

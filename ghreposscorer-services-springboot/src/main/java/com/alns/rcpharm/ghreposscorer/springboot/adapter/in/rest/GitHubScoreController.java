@@ -1,19 +1,26 @@
 package com.alns.rcpharm.ghreposscorer.springboot.adapter.in.rest;
 
+import com.alns.rcpharm.ghreposscorer.domain.exception.GitHubRateLimitException;
 import com.alns.rcpharm.ghreposscorer.domain.model.PopularityScore;
 import com.alns.rcpharm.ghreposscorer.domain.model.ScoreConfig;
+import com.alns.rcpharm.ghreposscorer.domain.port.in.CalculatePopularityStreamUseCase;
 import com.alns.rcpharm.ghreposscorer.domain.port.in.CalculatePopularityUseCase;
 import com.alns.rcpharm.ghreposscorer.domain.port.in.UpdateScoreConfigUseCase;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.reactivestreams.FlowAdapters;
+import reactor.core.publisher.Flux;
+import reactor.util.retry.Retry;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.concurrent.Flow;
 
 @RestController
 @RequestMapping("/api/v1")
@@ -21,13 +28,16 @@ import java.util.List;
 public class GitHubScoreController {
 
     private final CalculatePopularityUseCase calculatePopularityUseCase;
+    private final CalculatePopularityStreamUseCase calculatePopularityStreamUseCase;
     private final UpdateScoreConfigUseCase updateScoreConfigUseCase;
     private final CacheManager cacheManager;
 
     public GitHubScoreController(CalculatePopularityUseCase calculatePopularityUseCase,
+                                 CalculatePopularityStreamUseCase calculatePopularityStreamUseCase,
                                  UpdateScoreConfigUseCase updateScoreConfigUseCase,
                                  CacheManager cacheManager) {
         this.calculatePopularityUseCase = calculatePopularityUseCase;
+        this.calculatePopularityStreamUseCase = calculatePopularityStreamUseCase;
         this.updateScoreConfigUseCase = updateScoreConfigUseCase;
         this.cacheManager = cacheManager;
     }
@@ -41,6 +51,21 @@ public class GitHubScoreController {
 
         List<PopularityScore> scores = calculatePopularityUseCase.getPopularRepositories(language, createdAfter, limit);
         return ResponseEntity.ok(scores);
+    }
+
+    @GetMapping(value = "/repositories/popular/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "Stream popular GitHub repositories as Server-Sent Events (SSE)")
+    public Flux<PopularityScore> getPopularRepositoriesStream(
+            @RequestParam("language") String language,
+            @RequestParam("created_after") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate createdAfter,
+            @RequestParam(value = "limit", defaultValue = "30") int limit) {
+
+        Flow.Publisher<PopularityScore> publisher = calculatePopularityStreamUseCase.getPopularRepositoriesStream(language, createdAfter, limit);
+
+        return Flux.from(FlowAdapters.toPublisher(publisher))
+                .retryWhen(Retry.backoff(5, Duration.ofSeconds(2))
+                        .maxBackoff(Duration.ofSeconds(10))
+                        .filter(throwable -> throwable instanceof GitHubRateLimitException));
     }
 
     @GetMapping("/config/scoring")

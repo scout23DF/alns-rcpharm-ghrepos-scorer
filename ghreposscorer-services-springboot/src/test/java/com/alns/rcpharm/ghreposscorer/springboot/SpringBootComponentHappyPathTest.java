@@ -89,6 +89,42 @@ class SpringBootComponentHappyPathTest {
     }
 
     @Test
+    @DisplayName("Happy Path: GET /api/v1/repositories/popular/stream should stream SSE events")
+    void testGetPopularRepositoriesStreamSuccess() throws Exception {
+        String page1Json = """
+                {
+                  "total_count": 1,
+                  "items": [
+                    {
+                      "id": 105,
+                      "name": "spring-framework",
+                      "full_name": "spring-projects/spring-framework",
+                      "html_url": "https://github.com/spring-projects/spring-framework",
+                      "description": "Spring Framework Core",
+                      "language": "Java",
+                      "stargazers_count": 55000,
+                      "forks_count": 35000,
+                      "pushed_at": "2026-07-30T10:00:00Z"
+                    }
+                  ]
+                }
+                """;
+
+        wireMockServer.stubFor(com.github.tomakehurst.wiremock.client.WireMock.get(urlPathEqualTo("/search/repositories"))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(page1Json)
+                        .withStatus(200)));
+
+        mockMvc.perform(get("/api/v1/repositories/popular/stream")
+                        .param("language", "Java")
+                        .param("created_after", "2015-01-01")
+                        .param("limit", "5"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", containsString("text/event-stream")));
+    }
+
+    @Test
     @DisplayName("Happy Path: RFC 5988 Pagination should follow rel='next' Link header")
     void testPaginationWithLinkHeader() throws Exception {
         String page2Url = wireMockServer.baseUrl() + "/search/repositories?q=language%3AJava+created%3A%3E2015-01-01&sort=stars&order=desc&per_page=100&page=2";
