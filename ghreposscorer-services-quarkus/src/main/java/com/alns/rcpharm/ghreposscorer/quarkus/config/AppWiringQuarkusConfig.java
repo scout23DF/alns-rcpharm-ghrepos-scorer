@@ -1,6 +1,7 @@
 package com.alns.rcpharm.ghreposscorer.quarkus.config;
 
 import com.alns.rcpharm.ghreposscorer.domain.model.ScoreConfig;
+import com.alns.rcpharm.ghreposscorer.domain.port.in.CalculatePopularityStreamUseCase;
 import com.alns.rcpharm.ghreposscorer.domain.port.in.CalculatePopularityUseCase;
 import com.alns.rcpharm.ghreposscorer.domain.port.in.UpdateScoreConfigUseCase;
 import com.alns.rcpharm.ghreposscorer.domain.port.in.WarmCacheUseCase;
@@ -39,7 +40,7 @@ public class AppWiringQuarkusConfig {
 
     @Produces
     @ApplicationScoped
-    @Typed({CalculatePopularityUseCase.class, UpdateScoreConfigUseCase.class, PopularityCalculatorService.class})
+    @Typed({CalculatePopularityUseCase.class, CalculatePopularityStreamUseCase.class, UpdateScoreConfigUseCase.class, PopularityCalculatorService.class})
     public PopularityCalculatorService popularityCalculatorService(
             GitHubRepositoryPort gitHubRepositoryPort,
             ScoreConfigStoragePort scoreConfigStoragePort,

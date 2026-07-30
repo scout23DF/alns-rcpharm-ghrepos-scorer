@@ -3,6 +3,7 @@ package com.alns.rcpharm.ghreposscorer.domain.service;
 import com.alns.rcpharm.ghreposscorer.domain.model.PopularityScore;
 import com.alns.rcpharm.ghreposscorer.domain.model.GitHubRepository;
 import com.alns.rcpharm.ghreposscorer.domain.model.ScoreConfig;
+import com.alns.rcpharm.ghreposscorer.domain.port.in.CalculatePopularityStreamUseCase;
 import com.alns.rcpharm.ghreposscorer.domain.port.in.CalculatePopularityUseCase;
 import com.alns.rcpharm.ghreposscorer.domain.port.in.UpdateScoreConfigUseCase;
 import com.alns.rcpharm.ghreposscorer.domain.port.in.WarmCacheUseCase;
@@ -17,11 +18,12 @@ import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.Flow;
 
 /**
  * Domain Service implementing repository popularity scoring logic and dynamic configuration management.
  */
-public class PopularityCalculatorService implements CalculatePopularityUseCase, UpdateScoreConfigUseCase {
+public class PopularityCalculatorService implements CalculatePopularityUseCase, CalculatePopularityStreamUseCase, UpdateScoreConfigUseCase {
 
     private final GitHubRepositoryPort gitHubRepositoryPort;
     private final ScoreConfigStoragePort scoreConfigStoragePort;
@@ -95,6 +97,34 @@ public class PopularityCalculatorService implements CalculatePopularityUseCase, 
                 .sorted(Comparator.comparingDouble(PopularityScore::score).reversed())
                 .limit(limit > 0 ? limit : Long.MAX_VALUE)
                 .toList();
+    }
+
+    @Override
+    public Flow.Publisher<PopularityScore> getPopularRepositoriesStream(String language, LocalDate createdAfter, int limit) {
+        List<PopularityScore> scores = getPopularRepositories(language, createdAfter, limit);
+        return subscriber -> {
+            if (subscriber == null) return;
+            subscriber.onSubscribe(new Flow.Subscription() {
+                private boolean cancelled = false;
+
+                @Override
+                public void request(long n) {
+                    if (cancelled || n <= 0) return;
+                    for (PopularityScore score : scores) {
+                        if (cancelled) break;
+                        subscriber.onNext(score);
+                    }
+                    if (!cancelled) {
+                        subscriber.onComplete();
+                    }
+                }
+
+                @Override
+                public void cancel() {
+                    cancelled = true;
+                }
+            });
+        };
     }
 
     @Override

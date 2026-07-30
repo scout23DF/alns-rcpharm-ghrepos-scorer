@@ -62,6 +62,45 @@ class QuarkusComponentHappyPathTest {
     }
 
     @Test
+    @DisplayName("Happy Path Quarkus: GET /api/v1/repositories/popular/stream should stream SSE events")
+    void testGetPopularRepositoriesStreamSuccess() {
+        String page1Json = """
+                {
+                  "total_count": 1,
+                  "items": [
+                    {
+                      "id": 301,
+                      "name": "mutiny-reactive",
+                      "full_name": "smallrye/mutiny",
+                      "html_url": "https://github.com/smallrye/mutiny",
+                      "description": "Intuitive Event-Driven Reactive Programming",
+                      "language": "Java",
+                      "stargazers_count": 15000,
+                      "forks_count": 2000,
+                      "pushed_at": "2026-07-30T10:00:00Z"
+                    }
+                  ]
+                }
+                """;
+
+        GitHubApiWireMockTestResource.wireMockServer.stubFor(get(urlPathEqualTo("/search/repositories"))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(page1Json)
+                        .withStatus(200)));
+
+        given()
+                .queryParam("language", "Java")
+                .queryParam("created_after", "2015-01-01")
+                .queryParam("limit", 5)
+                .when()
+                .get("/api/v1/repositories/popular/stream")
+                .then()
+                .statusCode(200)
+                .contentType(containsString("text/event-stream"));
+    }
+
+    @Test
     @DisplayName("Happy Path Quarkus: GET & PUT /api/v1/config/scoring should retrieve and update config")
     void testGetAndUpdateScoringConfig() {
         given()
