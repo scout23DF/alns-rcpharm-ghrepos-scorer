@@ -9,6 +9,7 @@ import java.util.Map;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static io.restassured.RestAssured.given;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.*;
 
 @QuarkusTest
@@ -63,7 +64,7 @@ class QuarkusComponentHappyPathTest {
 
     @Test
     @DisplayName("Happy Path Quarkus: GET /api/v1/repositories/popular/stream should stream SSE events")
-    void testGetPopularRepositoriesStreamSuccess() {
+    void testGetPopularRepositoriesStreamSuccess() throws Exception {
         String page1Json = """
                 {
                   "total_count": 1,
@@ -89,15 +90,21 @@ class QuarkusComponentHappyPathTest {
                         .withBody(page1Json)
                         .withStatus(200)));
 
-        given()
+        jakarta.ws.rs.client.Client client = jakarta.ws.rs.client.ClientBuilder.newClient();
+        jakarta.ws.rs.client.WebTarget target = client.target(io.restassured.RestAssured.baseURI + ":" + io.restassured.RestAssured.port + "/api/v1/repositories/popular/stream")
                 .queryParam("language", "Java")
                 .queryParam("created_after", "2015-01-01")
-                .queryParam("limit", 5)
-                .when()
-                .get("/api/v1/repositories/popular/stream")
-                .then()
-                .statusCode(200)
-                .contentType(containsString("text/event-stream"));
+                .queryParam("limit", 5);
+
+        java.util.List<String> receivedEvents = new java.util.concurrent.CopyOnWriteArrayList<>();
+        try (jakarta.ws.rs.sse.SseEventSource eventSource = jakarta.ws.rs.sse.SseEventSource.target(target).build()) {
+            eventSource.register(event -> receivedEvents.add(event.readData()));
+            eventSource.open();
+            Thread.sleep(1000);
+        }
+
+        assertThat(receivedEvents).isNotEmpty();
+        assertThat(receivedEvents.get(0)).contains("mutiny-reactive");
     }
 
     @Test

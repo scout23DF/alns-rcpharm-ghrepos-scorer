@@ -15,6 +15,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
@@ -101,27 +102,66 @@ public class PopularityCalculatorService implements CalculatePopularityUseCase, 
 
     @Override
     public Flow.Publisher<PopularityScore> getPopularRepositoriesStream(String language, LocalDate createdAfter, int limit) {
-        List<PopularityScore> scores = getPopularRepositories(language, createdAfter, limit);
+        Objects.requireNonNull(language, "language must not be null");
+        Objects.requireNonNull(createdAfter, "createdAfter must not be null");
+
         return subscriber -> {
             if (subscriber == null) return;
-            subscriber.onSubscribe(new Flow.Subscription() {
-                private boolean cancelled = false;
+
+            Flow.Publisher<List<GitHubRepository>> pageStream = gitHubRepositoryPort.fetchGitHubRepositoriesPageStream(language, createdAfter);
+
+            pageStream.subscribe(new Flow.Subscriber<>() {
+                private Flow.Subscription upstreamSubscription;
+                private final List<PopularityScore> accumulatedScores = new ArrayList<>();
+                private final ScoreConfig config = getCurrentConfig();
+                private final Instant now = clock.instant();
 
                 @Override
-                public void request(long n) {
-                    if (cancelled || n <= 0) return;
-                    for (PopularityScore score : scores) {
-                        if (cancelled) break;
-                        subscriber.onNext(score);
+                public void onSubscribe(Flow.Subscription subscription) {
+                    this.upstreamSubscription = subscription;
+                    subscriber.onSubscribe(new Flow.Subscription() {
+                        @Override
+                        public void request(long n) {
+                            if (upstreamSubscription != null) {
+                                upstreamSubscription.request(n);
+                            }
+                        }
+
+                        @Override
+                        public void cancel() {
+                            if (upstreamSubscription != null) {
+                                upstreamSubscription.cancel();
+                            }
+                        }
+                    });
+                }
+
+                @Override
+                public void onNext(List<GitHubRepository> pageRepos) {
+                    if (pageRepos == null || pageRepos.isEmpty()) return;
+
+                    List<PopularityScore> pageScores = pageRepos.stream()
+                            .map(repo -> calculatePopularityScore(repo, config, now))
+                            .toList();
+
+                    synchronized (accumulatedScores) {
+                        accumulatedScores.addAll(pageScores);
+                        accumulatedScores.sort(Comparator.comparingDouble(PopularityScore::score).reversed());
                     }
-                    if (!cancelled) {
-                        subscriber.onComplete();
+
+                    for (PopularityScore score : pageScores) {
+                        subscriber.onNext(score);
                     }
                 }
 
                 @Override
-                public void cancel() {
-                    cancelled = true;
+                public void onError(Throwable throwable) {
+                    subscriber.onError(throwable);
+                }
+
+                @Override
+                public void onComplete() {
+                    subscriber.onComplete();
                 }
             });
         };

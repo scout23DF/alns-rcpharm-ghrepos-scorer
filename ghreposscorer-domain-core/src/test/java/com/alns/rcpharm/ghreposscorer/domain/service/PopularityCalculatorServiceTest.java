@@ -78,6 +78,41 @@ class PopularityCalculatorServiceTest {
     }
 
     @Test
+    @DisplayName("Should stream popular repositories via Flow.Publisher reactively")
+    void testGetPopularRepositoriesStream() {
+        GitHubRepository repo = new GitHubRepository("1", "repo-1", "org/repo-1", "http://github.com/org/repo-1",
+                "Desc", "java", 100, 50, FIXED_NOW);
+        gitHubRepositoryPort.setRepositories(List.of(repo));
+
+        java.util.concurrent.Flow.Publisher<PopularityScore> publisher = calculatorService.getPopularRepositoriesStream("java", LocalDate.of(2020, 1, 1), 5);
+        assertThat(publisher).isNotNull();
+
+        java.util.List<PopularityScore> streamed = new java.util.ArrayList<>();
+        publisher.subscribe(new java.util.concurrent.Flow.Subscriber<>() {
+            @Override
+            public void onSubscribe(java.util.concurrent.Flow.Subscription subscription) {
+                subscription.request(10);
+            }
+
+            @Override
+            public void onNext(PopularityScore item) {
+                streamed.add(item);
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+            }
+
+            @Override
+            public void onComplete() {
+            }
+        });
+
+        assertThat(streamed).hasSize(1);
+        assertThat(streamed.get(0).repository().id()).isEqualTo("1");
+    }
+
+    @Test
     @DisplayName("Should update configuration dynamically, invalidate cache, and run cache warmer")
     void testUpdateConfig() {
         MockCacheInvalidator cacheInvalidator = new MockCacheInvalidator();
