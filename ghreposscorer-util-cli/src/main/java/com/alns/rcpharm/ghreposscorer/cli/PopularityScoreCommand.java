@@ -11,9 +11,12 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.concurrent.Callable;
 
+import io.quarkus.picocli.runtime.annotations.TopCommand;
+
 /**
  * PicoCLI command for fetching and displaying GitHub repository popularity scores.
  */
+@TopCommand
 @Command(
     name = "github-score",
     mixinStandardHelpOptions = true,
