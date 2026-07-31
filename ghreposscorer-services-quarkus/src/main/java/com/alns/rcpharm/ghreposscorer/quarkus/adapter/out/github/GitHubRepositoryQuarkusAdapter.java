@@ -140,8 +140,8 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
                         try (Response response = gitHubRestClient.searchRepositories(
                                 query, "stars", "desc", 100, "alns-rcpharm-ghrepos-scorer-quarkus", authHeader)) {
 
-                            if (response.getStatus() == 429) {
-                                throw new com.alns.rcpharm.ghreposscorer.domain.exception.GitHubRateLimitException("GitHub API Rate Limit exceeded");
+                            if (response.getStatus() == 429 || response.getStatus() == 403) {
+                                throw new com.alns.rcpharm.ghreposscorer.domain.exception.GitHubRateLimitException("GitHub API Rate Limit / Access Limit exceeded (" + response.getStatus() + ")");
                             }
 
                             pageCount++;
@@ -176,8 +176,8 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
                                     try (Response nextResponse = gitHubRestClient.searchRepositoriesByUri(
                                             nextUri, "alns-rcpharm-ghrepos-scorer-quarkus", authHeader)) {
 
-                                        if (nextResponse.getStatus() == 429) {
-                                            throw new com.alns.rcpharm.ghreposscorer.domain.exception.GitHubRateLimitException("GitHub API Rate Limit exceeded on next page");
+                                        if (nextResponse.getStatus() == 429 || nextResponse.getStatus() == 403) {
+                                            throw new com.alns.rcpharm.ghreposscorer.domain.exception.GitHubRateLimitException("GitHub API Rate Limit / Access Limit exceeded on next page (" + nextResponse.getStatus() + ")");
                                         }
 
                                         pageCount++;

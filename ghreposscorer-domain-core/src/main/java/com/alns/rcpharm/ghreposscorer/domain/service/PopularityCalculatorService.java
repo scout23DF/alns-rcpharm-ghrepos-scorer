@@ -144,12 +144,19 @@ public class PopularityCalculatorService implements CalculatePopularityUseCase, 
                             .map(repo -> calculatePopularityScore(repo, config, now))
                             .toList();
 
+                    int effectiveLimit = limit > 0 ? limit : Integer.MAX_VALUE;
+                    List<PopularityScore> topRankingToEmit;
+
                     synchronized (accumulatedScores) {
                         accumulatedScores.addAll(pageScores);
                         accumulatedScores.sort(Comparator.comparingDouble(PopularityScore::score).reversed());
+
+                        topRankingToEmit = accumulatedScores.stream()
+                                .limit(effectiveLimit)
+                                .toList();
                     }
 
-                    for (PopularityScore score : pageScores) {
+                    for (PopularityScore score : topRankingToEmit) {
                         subscriber.onNext(score);
                     }
                 }
