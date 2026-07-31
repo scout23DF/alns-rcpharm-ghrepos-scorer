@@ -40,101 +40,121 @@ public class PaginationUtils {
         int pageCount = 0;
 
         try {
-            ResponseEntity<GitHubSearchResponseDto> responseEntity = fetchResponseWithRetry(
-                    () -> gitHubFeignClient.searchRepositories(query, "stars", "desc", 100, 1, "alns-rcpharm-ghrepos-scorer-springboot", authHeader));
 
-            if (responseEntity == null || responseEntity.getBody() == null) {
-                log.warn("GitHub API initial page request failed or returned empty response. Delivering accumulated items fetched so far.");
-                return;
-            }
+            ResponseEntity<GitHubSearchResponseDto> responseFirstPage = handleFirstPageFetching(
+                    gitHubFeignClient,
+                    scoreConfig,
+                    query,
+                    authHeader,
+                    pageConsumer,
+                    isCancelled
+            );
 
-            pageCount++;
-            handleResponseMapping(pageConsumer, isCancelled, responseEntity);
-
-            String linkHeader = responseEntity.getHeaders().getFirst("link");
-            if (linkHeader == null) {
-                linkHeader = responseEntity.getHeaders().getFirst("Link");
-            }
-            Optional<URI> nextUriOpt = GitHubLinkHeaderParser.extractNextPageUri(linkHeader);
-
-            while (handlePagination && nextUriOpt.isPresent() && pageCount < maxPages && !isCancelled.getAsBoolean()) {
-                if (delay != null && delay > 0) {
-                    try {
-                        Thread.sleep(delay);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
-                }
-
-                log.info("Fetching next page {} dynamically for query: {}", pageCount + 1, query);
-
-                final int currentPageToFetch = pageCount + 1;
-                ResponseEntity<GitHubSearchResponseDto> nextResponse = fetchResponseWithRetry(
-                        () -> gitHubFeignClient.searchRepositories(query, "stars", "desc", 100, currentPageToFetch, "alns-rcpharm-ghrepos-scorer-springboot", authHeader));
-
-                if (nextResponse == null || nextResponse.getBody() == null) {
-                    log.warn("GitHub API page {} request failed or returned empty response. Gracefully ending pagination and delivering accumulated items.", currentPageToFetch);
-                    break;
-                }
-
-                pageCount++;
-                handleResponseMapping(pageConsumer, isCancelled, nextResponse);
-
-                linkHeader = nextResponse.getHeaders().getFirst("link");
-                if (linkHeader == null) {
-                    linkHeader = nextResponse.getHeaders().getFirst("Link");
-                }
-                nextUriOpt = GitHubLinkHeaderParser.extractNextPageUri(linkHeader);
+            if (responseFirstPage != null) {
+                handleRemainingPagesFetching(
+                        responseFirstPage,
+                        gitHubFeignClient,
+                        scoreConfig,
+                        authHeader,
+                        pageConsumer,
+                        isCancelled
+                );
             }
         } catch (Exception e) {
             log.warn("Exception during GitHub pagination in Spring Boot: {}. Gracefully delivering accumulated items fetched so far.", e.getMessage());
         }
     }
 
-    private static ResponseEntity<GitHubSearchResponseDto> fetchResponseWithRetry(java.util.function.Supplier<ResponseEntity<GitHubSearchResponseDto>> requestSupplier) {
-        int maxRetries = 3;
-        long delayMs = 1000;
-        ResponseEntity<GitHubSearchResponseDto> response = null;
+    private static ResponseEntity<GitHubSearchResponseDto> handleFirstPageFetching(
+            GitHubFeignClient gitHubFeignClient,
+            ScoreConfig scoreConfig,
+            String query,
+            String authHeader,
+            Consumer<List<GitHubRepository>> pageConsumer,
+            BooleanSupplier isCancelled
+    ) {
 
-        for (int attempt = 1; attempt <= maxRetries; attempt++) {
-            try {
-                response = requestSupplier.get();
-                if (response != null && response.getStatusCode().is2xxSuccessful()) {
-                    return response;
-                }
-                if (response != null && (response.getStatusCode().value() == 429 || response.getStatusCode().value() == 403 || response.getStatusCode().is5xxServerError())) {
-                    log.warn("GitHub API call returned status {}. Attempt {}/{} failed. Retrying in {} ms...",
-                            response.getStatusCode().value(), attempt, maxRetries, delayMs);
-                    if (attempt < maxRetries) {
-                        try {
-                            Thread.sleep(delayMs);
-                        } catch (InterruptedException ie) {
-                            Thread.currentThread().interrupt();
-                            break;
-                        }
-                        delayMs *= 2;
-                        continue;
-                    }
-                }
-                return response;
-            } catch (Exception e) {
-                log.warn("GitHub API call failed ({}). Attempt {}/{} failed. Retrying in {} ms...",
-                        e.getMessage(), attempt, maxRetries, delayMs);
-                if (attempt < maxRetries) {
-                    try {
-                        Thread.sleep(delayMs);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
-                    delayMs *= 2;
-                } else {
-                    log.error("GitHub API request failed after max retries ({}): {}", maxRetries, e.getMessage());
+        ResponseEntity<GitHubSearchResponseDto> responseFirstPage = RetryAttemptsUtils.fetchResponseWithRetry(
+                scoreConfig,
+                () -> gitHubFeignClient.searchRepositories(
+                        query,
+                        "stars",
+                        "desc",
+                        100,
+                        1,
+                        "alns-rcpharm-ghrepos-scorer-springboot",
+                        authHeader
+                )
+        );
+
+        if (responseFirstPage == null || responseFirstPage.getBody() == null || responseFirstPage.getStatusCode().value() != 200) {
+            log.warn("GitHub API initial page request failed or returned non-200 status ({}). Delivering accumulated items fetched so far.", responseFirstPage != null ? responseFirstPage.getStatusCode().value() : "null");
+            return null;
+        }
+
+        handleResponseMapping(pageConsumer, isCancelled, responseFirstPage);
+
+        return responseFirstPage;
+    }
+
+    private static void handleRemainingPagesFetching(
+            ResponseEntity<GitHubSearchResponseDto> responseFirstPage,
+            GitHubFeignClient gitHubFeignClient,
+            ScoreConfig scoreConfig,
+            String authHeader,
+            Consumer<List<GitHubRepository>> pageConsumer,
+            BooleanSupplier isCancelled
+    ) {
+        boolean handlePagination = scoreConfig != null ? Boolean.TRUE.equals(scoreConfig.shouldHandleGHApiPagination()) : true;
+        int maxPages = scoreConfig != null && scoreConfig.maxPagesToFetch() != null ? scoreConfig.maxPagesToFetch() : 5;
+        Long delay = scoreConfig != null ? scoreConfig.delayBetweenGHApiRequestsMillis() : null;
+        int pageCount = 1;
+
+        String linkHeader = responseFirstPage.getHeaders().getFirst("link");
+        // if (linkHeader == null) {
+        //     linkHeader = responseFirstPage.getHeaders().getFirst("Link");
+        // }
+        Optional<URI> nextUriOpt = GitHubLinkHeaderParser.extractNextPageUri(linkHeader);
+
+        while (handlePagination && nextUriOpt.isPresent() && pageCount < maxPages && !isCancelled.getAsBoolean()) {
+            if (delay != null && delay > 0) {
+                try {
+                    Thread.sleep(delay);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
                 }
             }
-        }
-        return response;
+
+            URI nextUri = nextUriOpt.get();
+            log.info("Fetching next page " + (pageCount + 1) + " from URI: " + nextUri);
+
+            ResponseEntity<GitHubSearchResponseDto> nextResponse = RetryAttemptsUtils.fetchResponseWithRetry(
+                    scoreConfig,
+                    () -> gitHubFeignClient.searchRepositoriesByUri(
+                            nextUri,
+                            "alns-rcpharm-ghrepos-scorer-springboot",
+                            authHeader
+                    )
+            );
+
+            if (nextResponse == null || nextResponse.getStatusCode().value() != 200) {
+                log.warn("GitHub API page {} request failed or returned non-200 status ({}). Gracefully ending pagination and delivering accumulated items.", pageCount + 1, nextResponse != null ? nextResponse.getStatusCode().value() : "null");
+                break;
+            }
+
+            pageCount++;
+
+            handleResponseMapping(pageConsumer, isCancelled, nextResponse);
+
+            linkHeader = nextResponse.getHeaders().getFirst("link");
+            // if (linkHeader == null) {
+            //     linkHeader = nextResponse.getHeaders().getFirst("Link");
+            // }
+            nextUriOpt = GitHubLinkHeaderParser.extractNextPageUri(linkHeader);
+
+        } // while
+
     }
 
     private static void handleResponseMapping(Consumer<List<GitHubRepository>> pageConsumer,

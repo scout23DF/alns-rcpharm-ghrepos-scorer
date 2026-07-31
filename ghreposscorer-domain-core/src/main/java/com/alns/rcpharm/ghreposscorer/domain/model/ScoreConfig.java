@@ -17,14 +17,16 @@ public record ScoreConfig(
     Long delayBetweenGHApiRequestsMillis,
     Integer defaultPopularityLimit,
     Boolean shouldHandleGHApiPagination,
-    Integer maxPagesToFetch
+    Integer maxPagesToFetch,
+    Integer maxRetriesAttempts
 ) {
     public static final List<String> DEFAULT_POPULAR_LANGUAGES = List.of("Java", "Kotlin", "Python", "C#", "Go", "TypeScript");
     public static final LocalDate DEFAULT_CREATED_AFTER = LocalDate.of(2010, 1, 1);
-    public static final Long DEFAULT_DELAY_BETWEEN_GHAPI_REQUESTS = 6000L;
+    public static final Long DEFAULT_DELAY_BETWEEN_GHAPI_REQUESTS = 1000L;
     public static final Integer DEFAULT_POPULARITY_LIMIT = 30;
     public static final Boolean DEFAULT_SHOULD_HANDLE_GHAPI_PAGINATION = true;
-    public static final Integer DEFAULT_MAX_PAGES_TO_FETCH = 5;
+    public static final Integer DEFAULT_MAX_PAGES_TO_FETCH = 7;
+    public static final Integer DEFAULT_MAX_RETRIES_ATTEMPTS = 5;
 
     public ScoreConfig {
         if (popularLanguages == null) {
@@ -45,6 +47,9 @@ public record ScoreConfig(
         if (maxPagesToFetch == null) {
             maxPagesToFetch = DEFAULT_MAX_PAGES_TO_FETCH;
         }
+        if (maxRetriesAttempts == null) {
+            maxRetriesAttempts = DEFAULT_MAX_RETRIES_ATTEMPTS;
+        }
     }
 
     public ScoreConfig(double wStars, double wForks, double wRecency, double decayLambda) {
@@ -57,7 +62,8 @@ public record ScoreConfig(
             DEFAULT_DELAY_BETWEEN_GHAPI_REQUESTS,
             DEFAULT_POPULARITY_LIMIT,
             DEFAULT_SHOULD_HANDLE_GHAPI_PAGINATION,
-            DEFAULT_MAX_PAGES_TO_FETCH
+            DEFAULT_MAX_PAGES_TO_FETCH,
+            DEFAULT_MAX_RETRIES_ATTEMPTS
         );
     }
 
@@ -71,7 +77,8 @@ public record ScoreConfig(
             DEFAULT_DELAY_BETWEEN_GHAPI_REQUESTS,
             DEFAULT_POPULARITY_LIMIT,
             DEFAULT_SHOULD_HANDLE_GHAPI_PAGINATION,
-            DEFAULT_MAX_PAGES_TO_FETCH
+            DEFAULT_MAX_PAGES_TO_FETCH,
+            DEFAULT_MAX_RETRIES_ATTEMPTS
         );
     }
 
@@ -85,7 +92,8 @@ public record ScoreConfig(
             delayBetweenGHApiRequestsMillis,
             DEFAULT_POPULARITY_LIMIT,
             DEFAULT_SHOULD_HANDLE_GHAPI_PAGINATION,
-            DEFAULT_MAX_PAGES_TO_FETCH
+            DEFAULT_MAX_PAGES_TO_FETCH,
+            DEFAULT_MAX_RETRIES_ATTEMPTS
         );
     }
 
@@ -100,8 +108,10 @@ public record ScoreConfig(
                 DEFAULT_DELAY_BETWEEN_GHAPI_REQUESTS,
                 DEFAULT_POPULARITY_LIMIT,
                 DEFAULT_SHOULD_HANDLE_GHAPI_PAGINATION,
-                DEFAULT_MAX_PAGES_TO_FETCH
+                DEFAULT_MAX_PAGES_TO_FETCH,
+                DEFAULT_MAX_RETRIES_ATTEMPTS
         );
     }
+
 }
 

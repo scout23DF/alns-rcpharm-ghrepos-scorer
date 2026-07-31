@@ -13,23 +13,32 @@
     - `com.alns.rcpharm.ghreposscorer.domain.model`
     - `com.alns.rcpharm.ghreposscorer.domain.port.in`
     - `com.alns.rcpharm.ghreposscorer.domain.port.out`
-    - `com.alns.rcpharm.ghreposscorer.domain.service`
+    - `com.alns.rcpharm.ghreposscorer.domain.service`:
+      - `AbstractCalculatedGHReposScore`
+      - `ListScoredGHReposRankingService`
+      - `ListScoredGHReposRankingStreamService`
+      - `UpdateScoreConfigService`
+      - `CacheWarmerService`
     - `com.alns.rcpharm.ghreposscorer.domain.util`
   - `ghreposscorer-services-springboot`:
     - `com.alns.rcpharm.ghreposscorer.springboot.adapter.in.rest`
     - `com.alns.rcpharm.ghreposscorer.springboot.adapter.out.github`
+    - `com.alns.rcpharm.ghreposscorer.springboot.adapter.out.github.utils` (`MapperUtils`, `PaginationUtils`)
     - `com.alns.rcpharm.ghreposscorer.springboot.config`
     - `com.alns.rcpharm.ghreposscorer.springboot.scheduler`
   - `ghreposscorer-services-quarkus`:
     - `com.alns.rcpharm.ghreposscorer.quarkus.adapter.in.rest`
     - `com.alns.rcpharm.ghreposscorer.quarkus.adapter.out.github`
+    - `com.alns.rcpharm.ghreposscorer.quarkus.adapter.out.github.utils` (`MapperUtils`, `PaginationUtils`)
     - `com.alns.rcpharm.ghreposscorer.quarkus.config`
     - `com.alns.rcpharm.ghreposscorer.quarkus.scheduler`
   - `ghreposscorer-util-cli`:
     - `com.alns.rcpharm.ghreposscorer.cli`
     - `com.alns.rcpharm.ghreposscorer.cli.config`    
 - In `ghreposscorer-util-cli`, use `quarkus-picocli` and depend on `ghreposscorer-services-quarkus` to reuse outbound adapters without duplicating code.
-- Provide dynamic scoring configuration endpoints (`PUT/GET /api/v1/config/scoring`) with automatic cache invalidation.
+- Provide synchronous ranking endpoint (`GET /api/v1/repositories/popular`) and real-time page-by-page SSE stream endpoint (`GET /api/v1/repositories/popular/stream`).
+- Provide dynamic scoring configuration endpoints (`PUT/GET /api/v1/config/scoring`) with automatic cache invalidation and async cache warming.
+- Implement exponential backoff retries (3 attempts with 1s, 2s, 4s delays) and graceful fallback to accumulated repositories on GitHub API errors.
 - Provide background `@Scheduled` cache warmer logic.
 - Provide Testcontainers-based tests with `RedisContainer`.
 - Provide Dockerfile (JVM), Dockerfile.native (GraalVM 25), `docker-compose.yml`, and Kubernetes manifests under `/k8s/` using namespace `alns-rcpharm-ghrepos-scorer`.

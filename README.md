@@ -1,6 +1,6 @@
 # 🚀 GitHub Repository Popularity Scorer (`alns-rcpharm-ghrepos-scorer`)
 
-> A production-ready, highly resilient microservice and CLI application built with **Java 25** and **Hexagonal Architecture**. It evaluates and ranks GitHub repositories using a custom decay-weighted popularity scoring algorithm, featuring dual Web runners (**Spring Boot 4** and **Quarkus 3**) and a native GraalVM CLI.
+> A production-ready, highly resilient microservice and CLI application built with **Java 25** and **Hexagonal Architecture**. It evaluates and ranks GitHub repositories using a custom decay-weighted popularity scoring algorithm, featuring dual Web runners (**Spring Boot 4** and **Quarkus 3**), real-time Server-Sent Events (SSE) streaming, exponential backoff retries, and a native GraalVM CLI.
 
 ---
 
@@ -23,7 +23,8 @@ alns-rcpharm-ghrepos-scorer/
 flowchart TD
     subgraph Clients["Clients / Consumers"]
         CLI["CLI Tool (PicoCLI / Native)"]
-        HTTP["HTTP API Clients / Web"]
+        HTTP["HTTP API Clients / Web / Swagger UI"]
+        SSE["SSE Reactive Stream Clients"]
     end
 
     subgraph AdaptersIn["Inbound Adapters (REST Controllers)"]
@@ -32,16 +33,22 @@ flowchart TD
     end
 
     subgraph DomainCore["Domain Core (Pure Java 25)"]
-        UseCase["CalculatePopularityUseCase"]
+        RankUseCase["ListScoredGHReposRankingUseCase"]
+        StreamUseCase["ListScoredGHReposRankingStreamUseCase"]
         ConfigUseCase["UpdateScoreConfigUseCase"]
-        Service["PopularityCalculatorService"]
-        DecayCalc["RecencyDecayCalculator"]
-        ConfigModel["ScoreConfig (Record)"]
+        WarmUseCase["WarmCacheUseCase"]
+        
+        AbstractScore["AbstractCalculatedGHReposScore"]
+        RankService["ListScoredGHReposRankingService"]
+        StreamService["ListScoredGHReposRankingStreamService"]
+        ConfigService["UpdateScoreConfigService"]
+        WarmerService["CacheWarmerService"]
     end
 
     subgraph AdaptersOut["Outbound Adapters"]
         SpringAdapter["GitHubRepositorySpringAdapter (OpenFeign)"]
         QuarkusAdapter["GitHubRepositoryQuarkusAdapter (MicroProfile REST)"]
+        PaginationUtils["PaginationUtils (Exponential Retry & Fallback)"]
         RedisCache["Redis / Caffeine Cache"]
     end
 
@@ -52,23 +59,35 @@ flowchart TD
     CLI --> QuarkusRes
     HTTP --> SpringCtrl
     HTTP --> QuarkusRes
+    SSE --> SpringCtrl
+    SSE --> QuarkusRes
 
-    SpringCtrl --> UseCase
-    QuarkusRes --> UseCase
+    SpringCtrl --> RankUseCase
+    SpringCtrl --> StreamUseCase
+    SpringCtrl --> ConfigUseCase
+    
+    QuarkusRes --> RankUseCase
+    QuarkusRes --> StreamUseCase
+    QuarkusRes --> ConfigUseCase
 
-    UseCase --> Service
-    ConfigUseCase --> Service
-    Service --> DecayCalc
-    Service --> ConfigModel
+    RankUseCase --> RankService
+    StreamUseCase --> StreamService
+    ConfigUseCase --> ConfigService
+    WarmUseCase --> WarmerService
 
-    Service --> SpringAdapter
-    Service --> QuarkusAdapter
+    RankService --> AbstractScore
+    StreamService --> AbstractScore
 
-    SpringAdapter --> RedisCache
-    SpringAdapter --> GHApi
+    RankService --> SpringAdapter
+    RankService --> QuarkusAdapter
+    StreamService --> SpringAdapter
+    StreamService --> QuarkusAdapter
 
-    QuarkusAdapter --> RedisCache
-    QuarkusAdapter --> GHApi
+    SpringAdapter --> PaginationUtils
+    QuarkusAdapter --> PaginationUtils
+
+    PaginationUtils --> RedisCache
+    PaginationUtils --> GHApi
 ```
 
 ---
@@ -87,13 +106,17 @@ flowchart TD
   - **Spring Boot 4:** Ideal for enterprise ecosystems with widespread OpenFeign and Resilience4j support.
   - **Quarkus 3:** Delivers sub-second startup (~10ms) and minimal RAM footprint (~35MB), enabling instant native compilation via GraalVM for the PicoCLI runner.
 
-### 3. Caching Strategy & Async Cache Warming
-- **Trade-off:** Stale cache risks vs API rate limits.
-- **Rationale:** GitHub search API allows only 10 requests/minute unauthenticated (30 req/min authenticated). We employ a two-tier caching mechanism (Caffeine in-memory + Redis distributed cache). When scoring parameters are updated (`PUT /api/v1/config/scoring`), cache is invalidated and a background `ManagedExecutor` asynchronously warms cache entries non-blocking.
+### 3. Real-Time Page-by-Page SSE Streaming
+- **Trade-off:** Incremental data state emission over standard HTTP vs single payload response.
+- **Rationale:** Real-time Server-Sent Events (`text/event-stream`) emit an updated Top-N ranking snapshot after each GitHub API page fetch, allowing web clients and dashboards to render live ranking progress without waiting for full pagination to complete.
 
-### 4. RFC 5988 Link Header Pagination & Delay Safeguards
-- **Trade-off:** Sequential HTTP round-trips vs API rate throttling.
-- **Rationale:** Instead of hardcoding page numbers, adapters follow the standard `rel="next"` URI sent by GitHub's `Link` header up to `maxPagesToFetch`. A configurable delay (`delayBetweenGHApiRequestsMillis`) prevents secondary rate limits.
+### 4. Exponential Backoff Retries & Graceful Degradation Fallback
+- **Trade-off:** Retrying failed API requests increases worst-case response latency before fallback.
+- **Rationale:** On encountering rate limits (HTTP 429), access forbidden (403), or server errors (5xx), both Spring Boot and Quarkus perform **3 exponential backoff retry attempts** (1s, 2s, 4s). If retries are exhausted, pagination terminates gracefully and delivers the top-N ranking constructed from all accumulated repositories fetched prior to the error, avoiding HTTP 500 crashes.
+
+### 5. Caching Strategy & Async Cache Warming
+- **Trade-off:** Stale cache risks vs API rate limits.
+- **Rationale:** GitHub search API allows only 10 requests/minute unauthenticated (30 req/min authenticated). We employ a two-tier caching mechanism (Caffeine in-memory + Redis distributed cache). When scoring parameters are updated (`PUT /api/v1/config/scoring`), cache is invalidated and a background `ManagedExecutor` / `Executor` asynchronously warms cache entries non-blocking.
 
 ---
 
@@ -113,17 +136,23 @@ $$Score = (w_{stars} \times Stars) + (w_{forks} \times Forks) + \left(w_{recency
 
 ## 🔌 API Endpoints & Swagger Documentation
 
-### 1. Popular Repositories Search
+### 1. Synchronous Popular Repositories Search
 ```http
 GET /api/v1/repositories/popular?language=java&created_after=2026-01-01&limit=30
 ```
 
-### 2. Get Current Scoring Configuration
+### 2. Real-Time Page-by-Page SSE Reactive Stream
+```http
+GET /api/v1/repositories/popular/stream?language=java&created_after=2026-01-01&limit=30
+Accept: text/event-stream
+```
+
+### 3. Get Current Scoring Configuration
 ```http
 GET /api/v1/config/scoring
 ```
 
-### 3. Update Scoring Configuration (Triggers Cache Invalidation & Async Cache Warming)
+### 4. Update Scoring Configuration (Triggers Cache Invalidation & Async Cache Warming)
 ```http
 PUT /api/v1/config/scoring
 Content-Type: application/json
@@ -202,9 +231,8 @@ kubectl apply -f k8s/
 
 ## 🧪 Testing Strategy
 
-- **Domain Core:** Pure JUnit 5 & AssertJ unit tests for scoring calculations, recency decay logic, and RFC 5988 `Link` header parsing.
+- **Domain Core:** Pure JUnit 5 & AssertJ unit tests for scoring calculations, recency decay logic, reactive page streaming, and RFC 5988 `Link` header parsing.
 - **Integration Tests:** WireMock for GitHub API mocking and **Testcontainers (Redis)** for cache layer verification.
-
 
 ---
 
@@ -214,8 +242,8 @@ This project was engineered leveraging **Google Antigravity (AGY)** powered by *
 
 ### 🎯 How AI Agents & SDD Were Leveraged:
 1. **Spec-First Engineering**:
-    - Technical specifications, domain models, and architectural boundaries were established prior to implementation.
-    - The AI agent operated under strict constraints: pure Java 25 domain model with zero framework dependencies, Hexagonal Ports & Adapters, RFC 5988 Link header pagination, and explicit error handling contracts.
+    - Technical specifications, domain models, and architectural boundaries were established prior to implementation in `specs/challenge-spec-01.md`.
+    - The AI agent operated under strict constraints: pure Java 25 domain model with zero framework dependencies, Hexagonal Ports & Adapters, RFC 5988 Link header pagination, SSE streaming, and explicit error handling contracts.
 
 2. **Iterative Autonomous Cycles**:
     - Implementation progressed through structured, test-verified cycles: `domain-core` calculation logic $\rightarrow$ `services-springboot` adapter $\rightarrow$ `services-quarkus` adapter $\rightarrow$ `util-cli` GraalVM native binary $\rightarrow$ Docker & Kubernetes infrastructure.
@@ -223,6 +251,4 @@ This project was engineered leveraging **Google Antigravity (AGY)** powered by *
 
 3. **Software Craftsmanship & Ownership**:
     - AI served as a powerful force multiplier for boilerplate, cross-framework wiring (Spring Cloud Feign vs Quarkus MicroProfile REST Client), and GraalVM native configuration.
-    - All architectural decisions (Hexagonal boundaries, two-tier caching, async cache warming, RFC 7807 ProblemDetails) remain fully understood, documented, and justified.
-
----
+    - All architectural decisions (Hexagonal boundaries, two-tier caching, async cache warming, RFC 7807 ProblemDetails, SSE streaming) remain fully documented and justified.
