@@ -1,7 +1,7 @@
 package com.alns.rcpharm.ghreposscorer.cli;
 
 import com.alns.rcpharm.ghreposscorer.domain.model.PopularityScore;
-import com.alns.rcpharm.ghreposscorer.domain.port.in.CalculatePopularityUseCase;
+import com.alns.rcpharm.ghreposscorer.domain.port.in.ListScoredGHReposRankingUseCase;
 import jakarta.inject.Inject;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -26,7 +26,7 @@ import io.quarkus.picocli.runtime.annotations.TopCommand;
 public class PopularityScoreCommand implements Callable<Integer> {
 
     @Inject
-    CalculatePopularityUseCase calculatePopularityUseCase;
+    ListScoredGHReposRankingUseCase listScoredGHReposRankingUseCase;
 
     @Option(names = {"-l", "--language"}, description = "Programming language to search (e.g. Java, Kotlin, Python)", defaultValue = "Java")
     String language;
@@ -43,7 +43,7 @@ public class PopularityScoreCommand implements Callable<Integer> {
         System.out.printf("Fetching popular repositories for language '%s' created after %s (Limit: %d)...%n%n",
                 language, createdAfter, limit);
 
-        List<PopularityScore> scores = calculatePopularityUseCase.getPopularRepositories(language, createdAfter, limit);
+        List<PopularityScore> scores = listScoredGHReposRankingUseCase.getPopularRepositories(language, createdAfter, limit);
 
         if (scores.isEmpty()) {
             System.out.println("No repositories found matching the given criteria.");

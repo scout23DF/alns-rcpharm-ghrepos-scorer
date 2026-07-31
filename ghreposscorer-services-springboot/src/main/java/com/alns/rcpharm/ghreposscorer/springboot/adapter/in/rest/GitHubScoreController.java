@@ -3,8 +3,8 @@ package com.alns.rcpharm.ghreposscorer.springboot.adapter.in.rest;
 import com.alns.rcpharm.ghreposscorer.domain.exception.GitHubRateLimitException;
 import com.alns.rcpharm.ghreposscorer.domain.model.PopularityScore;
 import com.alns.rcpharm.ghreposscorer.domain.model.ScoreConfig;
-import com.alns.rcpharm.ghreposscorer.domain.port.in.CalculatePopularityStreamUseCase;
-import com.alns.rcpharm.ghreposscorer.domain.port.in.CalculatePopularityUseCase;
+import com.alns.rcpharm.ghreposscorer.domain.port.in.ListScoredGHReposRankingStreamUseCase;
+import com.alns.rcpharm.ghreposscorer.domain.port.in.ListScoredGHReposRankingUseCase;
 import com.alns.rcpharm.ghreposscorer.domain.port.in.UpdateScoreConfigUseCase;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -27,17 +27,17 @@ import java.util.concurrent.Flow;
 @Tag(name = "GitHub Repository Popularity Scorer", description = "Endpoints for computing popularity scores and managing scoring config")
 public class GitHubScoreController {
 
-    private final CalculatePopularityUseCase calculatePopularityUseCase;
-    private final CalculatePopularityStreamUseCase calculatePopularityStreamUseCase;
+    private final ListScoredGHReposRankingUseCase listScoredGHReposRankingUseCase;
+    private final ListScoredGHReposRankingStreamUseCase listScoredGHReposRankingStreamUseCase;
     private final UpdateScoreConfigUseCase updateScoreConfigUseCase;
     private final CacheManager cacheManager;
 
-    public GitHubScoreController(CalculatePopularityUseCase calculatePopularityUseCase,
-                                 CalculatePopularityStreamUseCase calculatePopularityStreamUseCase,
+    public GitHubScoreController(ListScoredGHReposRankingUseCase listScoredGHReposRankingUseCase,
+                                 ListScoredGHReposRankingStreamUseCase listScoredGHReposRankingStreamUseCase,
                                  UpdateScoreConfigUseCase updateScoreConfigUseCase,
                                  CacheManager cacheManager) {
-        this.calculatePopularityUseCase = calculatePopularityUseCase;
-        this.calculatePopularityStreamUseCase = calculatePopularityStreamUseCase;
+        this.listScoredGHReposRankingUseCase = listScoredGHReposRankingUseCase;
+        this.listScoredGHReposRankingStreamUseCase = listScoredGHReposRankingStreamUseCase;
         this.updateScoreConfigUseCase = updateScoreConfigUseCase;
         this.cacheManager = cacheManager;
     }
@@ -49,7 +49,7 @@ public class GitHubScoreController {
             @RequestParam("created_after") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate createdAfter,
             @RequestParam(value = "limit", defaultValue = "30") int limit) {
 
-        List<PopularityScore> scores = calculatePopularityUseCase.getPopularRepositories(language, createdAfter, limit);
+        List<PopularityScore> scores = listScoredGHReposRankingUseCase.getPopularRepositories(language, createdAfter, limit);
         return ResponseEntity.ok(scores);
     }
 
@@ -60,7 +60,7 @@ public class GitHubScoreController {
             @RequestParam("created_after") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate createdAfter,
             @RequestParam(value = "limit", defaultValue = "30") int limit) {
 
-        Flow.Publisher<PopularityScore> publisher = calculatePopularityStreamUseCase.getPopularRepositoriesStream(language, createdAfter, limit);
+        Flow.Publisher<PopularityScore> publisher = listScoredGHReposRankingStreamUseCase.getPopularRepositoriesStream(language, createdAfter, limit);
 
         return Flux.from(FlowAdapters.toPublisher(publisher))
                 .retryWhen(Retry.backoff(5, Duration.ofSeconds(2))

@@ -1,14 +1,17 @@
 package com.alns.rcpharm.ghreposscorer.springboot.config;
 
 import com.alns.rcpharm.ghreposscorer.domain.model.ScoreConfig;
-import com.alns.rcpharm.ghreposscorer.domain.port.in.CalculatePopularityStreamUseCase;
-import com.alns.rcpharm.ghreposscorer.domain.port.in.CalculatePopularityUseCase;
+import com.alns.rcpharm.ghreposscorer.domain.port.in.ListScoredGHReposRankingStreamUseCase;
+import com.alns.rcpharm.ghreposscorer.domain.port.in.ListScoredGHReposRankingUseCase;
 import com.alns.rcpharm.ghreposscorer.domain.port.in.UpdateScoreConfigUseCase;
+import com.alns.rcpharm.ghreposscorer.domain.port.in.WarmCacheUseCase;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.CacheInvalidatorPort;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.GitHubRepositoryPort;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.ScoreConfigStoragePort;
 import com.alns.rcpharm.ghreposscorer.domain.service.CacheWarmerService;
-import com.alns.rcpharm.ghreposscorer.domain.service.PopularityCalculatorService;
+import com.alns.rcpharm.ghreposscorer.domain.service.ListScoredGHReposRankingService;
+import com.alns.rcpharm.ghreposscorer.domain.service.ListScoredGHReposRankingStreamService;
+import com.alns.rcpharm.ghreposscorer.domain.service.UpdateScoreConfigService;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -37,19 +40,32 @@ public class AppWiringSpringConfig {
     }
 
     @Bean
-    public PopularityCalculatorService popularityCalculatorService(
-            GitHubRepositoryPort gitHubRepositoryPort,
+    public UpdateScoreConfigUseCase updateScoreConfigUseCase(
             ScoreConfigStoragePort scoreConfigStoragePort,
             CacheInvalidatorPort cacheInvalidatorPort,
-            @Qualifier("applicationTaskExecutor") Executor taskExecutor) {
-        return new PopularityCalculatorService(gitHubRepositoryPort, scoreConfigStoragePort, cacheInvalidatorPort, taskExecutor);
+            @org.springframework.context.annotation.Lazy WarmCacheUseCase warmCacheUseCase) {
+        return new UpdateScoreConfigService(scoreConfigStoragePort, cacheInvalidatorPort, warmCacheUseCase);
+    }
+
+    @Bean
+    public ListScoredGHReposRankingUseCase listScoredGHReposRankingUseCase(
+            GitHubRepositoryPort gitHubRepositoryPort,
+            UpdateScoreConfigUseCase updateScoreConfigUseCase) {
+        return new ListScoredGHReposRankingService(gitHubRepositoryPort, updateScoreConfigUseCase);
+    }
+
+    @Bean
+    public ListScoredGHReposRankingStreamUseCase listScoredGHReposRankingStreamUseCase(
+            GitHubRepositoryPort gitHubRepositoryPort,
+            UpdateScoreConfigUseCase updateScoreConfigUseCase) {
+        return new ListScoredGHReposRankingStreamService(gitHubRepositoryPort, updateScoreConfigUseCase);
     }
 
     @Bean
     public CacheWarmerService cacheWarmerService(
-            CalculatePopularityUseCase calculatePopularityUseCase,
+            ListScoredGHReposRankingUseCase listScoredGHReposRankingUseCase,
             UpdateScoreConfigUseCase updateScoreConfigUseCase,
             @Qualifier("applicationTaskExecutor") Executor taskExecutor) {
-        return new CacheWarmerService(calculatePopularityUseCase, updateScoreConfigUseCase, taskExecutor);
+        return new CacheWarmerService(listScoredGHReposRankingUseCase, updateScoreConfigUseCase, taskExecutor);
     }
 }

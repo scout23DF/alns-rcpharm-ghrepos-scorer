@@ -3,8 +3,8 @@ package com.alns.rcpharm.ghreposscorer.quarkus.adapter.in.rest;
 import com.alns.rcpharm.ghreposscorer.domain.exception.GitHubRateLimitException;
 import com.alns.rcpharm.ghreposscorer.domain.model.PopularityScore;
 import com.alns.rcpharm.ghreposscorer.domain.model.ScoreConfig;
-import com.alns.rcpharm.ghreposscorer.domain.port.in.CalculatePopularityStreamUseCase;
-import com.alns.rcpharm.ghreposscorer.domain.port.in.CalculatePopularityUseCase;
+import com.alns.rcpharm.ghreposscorer.domain.port.in.ListScoredGHReposRankingStreamUseCase;
+import com.alns.rcpharm.ghreposscorer.domain.port.in.ListScoredGHReposRankingUseCase;
 import com.alns.rcpharm.ghreposscorer.domain.port.in.UpdateScoreConfigUseCase;
 import io.quarkus.cache.CacheInvalidateAll;
 import io.smallrye.mutiny.Multi;
@@ -29,10 +29,10 @@ import java.util.concurrent.Flow;
 public class GitHubScoreResource {
 
     @Inject
-    CalculatePopularityUseCase calculatePopularityUseCase;
+    ListScoredGHReposRankingUseCase listScoredGHReposRankingUseCase;
 
     @Inject
-    CalculatePopularityStreamUseCase calculatePopularityStreamUseCase;
+    ListScoredGHReposRankingStreamUseCase listScoredGHReposRankingStreamUseCase;
 
     @Inject
     UpdateScoreConfigUseCase updateScoreConfigUseCase;
@@ -53,7 +53,7 @@ public class GitHubScoreResource {
         }
 
         LocalDate createdAfter = LocalDate.parse(createdAfterStr);
-        List<PopularityScore> scores = calculatePopularityUseCase.getPopularRepositories(language, createdAfter, limit);
+        List<PopularityScore> scores = listScoredGHReposRankingUseCase.getPopularRepositories(language, createdAfter, limit);
         return Response.ok(scores).build();
     }
 
@@ -76,7 +76,7 @@ public class GitHubScoreResource {
         }
 
         LocalDate createdAfter = LocalDate.parse(createdAfterStr);
-        Flow.Publisher<PopularityScore> publisher = calculatePopularityStreamUseCase.getPopularRepositoriesStream(language, createdAfter, limit);
+        Flow.Publisher<PopularityScore> publisher = listScoredGHReposRankingStreamUseCase.getPopularRepositoriesStream(language, createdAfter, limit);
 
         return Multi.createFrom().publisher(publisher)
                 .onFailure(GitHubRateLimitException.class)

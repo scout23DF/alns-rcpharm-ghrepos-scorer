@@ -24,7 +24,7 @@ Build a production-ready REST API and CLI that fetches repositories from GitHub 
 
 ### Ports:
 - **Input Ports:**
-    - `CalculatePopularityUseCase`: `List<PopularityScore> getPopularRepositories(String language, LocalDate createdAfter, int limit)`
+    - `ListScoredGHReposRankingUseCase`: `List<PopularityScore> getPopularRepositories(String language, LocalDate createdAfter, int limit)`
     - `UpdateScoreConfigUseCase`: `ScoreConfig updateConfig(ScoreConfig newConfig)`, `ScoreConfig getCurrentConfig()`
 - **Output Ports:**
     - `GitHubRepositoryPort`: `List<GitHubRepository> fetchGitHubRepositories(String language, LocalDate createdAfter)`

@@ -1,5 +1,6 @@
 package com.alns.rcpharm.ghreposscorer.springboot.adapter.out.github;
 
+import com.alns.rcpharm.ghreposscorer.domain.exception.GitHubRateLimitException;
 import com.alns.rcpharm.ghreposscorer.domain.model.GitHubRepository;
 import com.alns.rcpharm.ghreposscorer.domain.model.ScoreConfig;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.GitHubRepositoryPort;
@@ -21,6 +22,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Flow;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 @Component
 public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
@@ -55,12 +61,12 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
     }
 
     @Override
-    public java.util.concurrent.Flow.Publisher<List<GitHubRepository>> fetchGitHubRepositoriesPageStream(String language, LocalDate createdAfter) {
+    public Flow.Publisher<List<GitHubRepository>> fetchGitHubRepositoriesPageStream(String language, LocalDate createdAfter) {
         return subscriber -> {
             if (subscriber == null) return;
             subscriber.onSubscribe(new java.util.concurrent.Flow.Subscription() {
-                private final java.util.concurrent.atomic.AtomicBoolean cancelled = new java.util.concurrent.atomic.AtomicBoolean(false);
-                private final java.util.concurrent.atomic.AtomicBoolean started = new java.util.concurrent.atomic.AtomicBoolean(false);
+                private final AtomicBoolean cancelled = new AtomicBoolean(false);
+                private final AtomicBoolean started = new AtomicBoolean(false);
 
                 @Override
                 public void request(long n) {
@@ -69,7 +75,7 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
                     }
 
                     ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
-                    java.util.concurrent.CompletableFuture.runAsync(() -> {
+                    CompletableFuture.runAsync(() -> {
                         if (contextClassLoader != null) {
                             Thread.currentThread().setContextClassLoader(contextClassLoader);
                         }
@@ -86,7 +92,7 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
                         } catch (feign.FeignException fe) {
                             if (fe.status() == 429 || fe.status() == 403) {
                                 if (!cancelled.get()) {
-                                    subscriber.onError(new com.alns.rcpharm.ghreposscorer.domain.exception.GitHubRateLimitException(
+                                    subscriber.onError(new GitHubRateLimitException(
                                             "GitHub API Rate Limit / Access Limit exceeded (" + fe.status() + ")"));
                                 }
                             } else if (!cancelled.get()) {
@@ -109,8 +115,8 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
     }
 
     private void fetchPageStream(String language, LocalDate createdAfter,
-                                 java.util.function.Consumer<List<GitHubRepository>> pageConsumer,
-                                 java.util.function.BooleanSupplier isCancelled) {
+                                 Consumer<List<GitHubRepository>> pageConsumer,
+                                 BooleanSupplier isCancelled) {
         String query = String.format("language:%s created:>%s", language, createdAfter.toString());
         String token = System.getenv("GITHUB_TOKEN");
         String authHeader = (token != null && !token.isBlank()) ? "Bearer " + token : null;

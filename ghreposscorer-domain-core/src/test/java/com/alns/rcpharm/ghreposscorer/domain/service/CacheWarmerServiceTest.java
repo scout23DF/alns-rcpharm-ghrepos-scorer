@@ -2,7 +2,7 @@ package com.alns.rcpharm.ghreposscorer.domain.service;
 
 import com.alns.rcpharm.ghreposscorer.domain.model.PopularityScore;
 import com.alns.rcpharm.ghreposscorer.domain.model.ScoreConfig;
-import com.alns.rcpharm.ghreposscorer.domain.port.in.CalculatePopularityUseCase;
+import com.alns.rcpharm.ghreposscorer.domain.port.in.ListScoredGHReposRankingUseCase;
 import com.alns.rcpharm.ghreposscorer.domain.port.in.UpdateScoreConfigUseCase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -16,13 +16,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class CacheWarmerServiceTest {
 
-    private MockCalculatePopularityUseCase calculatePopularityUseCase;
+    private MockListScoredGHReposRankingUseCase calculatePopularityUseCase;
     private MockUpdateScoreConfigUseCase updateScoreConfigUseCase;
     private CacheWarmerService cacheWarmerService;
 
     @BeforeEach
     void setUp() {
-        calculatePopularityUseCase = new MockCalculatePopularityUseCase();
+        calculatePopularityUseCase = new MockListScoredGHReposRankingUseCase();
         updateScoreConfigUseCase = new MockUpdateScoreConfigUseCase();
         cacheWarmerService = new CacheWarmerService(calculatePopularityUseCase, updateScoreConfigUseCase);
     }
@@ -40,7 +40,7 @@ class CacheWarmerServiceTest {
         assertThat(calculatePopularityUseCase.lastLimit).isEqualTo(30);
     }
 
-    private static class MockCalculatePopularityUseCase implements CalculatePopularityUseCase {
+    private static class MockListScoredGHReposRankingUseCase implements ListScoredGHReposRankingUseCase {
         final List<String> calledLanguages = new ArrayList<>();
         LocalDate lastCreatedAfter;
         int lastLimit;

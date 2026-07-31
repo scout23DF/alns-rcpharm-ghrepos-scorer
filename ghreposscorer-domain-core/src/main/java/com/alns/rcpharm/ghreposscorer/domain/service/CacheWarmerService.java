@@ -1,7 +1,7 @@
 package com.alns.rcpharm.ghreposscorer.domain.service;
 
 import com.alns.rcpharm.ghreposscorer.domain.model.ScoreConfig;
-import com.alns.rcpharm.ghreposscorer.domain.port.in.CalculatePopularityUseCase;
+import com.alns.rcpharm.ghreposscorer.domain.port.in.ListScoredGHReposRankingUseCase;
 import com.alns.rcpharm.ghreposscorer.domain.port.in.UpdateScoreConfigUseCase;
 import com.alns.rcpharm.ghreposscorer.domain.port.in.WarmCacheUseCase;
 
@@ -16,19 +16,19 @@ public class CacheWarmerService implements WarmCacheUseCase {
 
     private static final Logger log = Logger.getLogger(CacheWarmerService.class.getName());
 
-    private final CalculatePopularityUseCase calculatePopularityUseCase;
+    private final ListScoredGHReposRankingUseCase listScoredGHReposRankingUseCase;
     private final UpdateScoreConfigUseCase updateScoreConfigUseCase;
     private final Executor executor;
 
-    public CacheWarmerService(CalculatePopularityUseCase calculatePopularityUseCase,
+    public CacheWarmerService(ListScoredGHReposRankingUseCase listScoredGHReposRankingUseCase,
                               UpdateScoreConfigUseCase updateScoreConfigUseCase) {
-        this(calculatePopularityUseCase, updateScoreConfigUseCase, null);
+        this(listScoredGHReposRankingUseCase, updateScoreConfigUseCase, null);
     }
 
-    public CacheWarmerService(CalculatePopularityUseCase calculatePopularityUseCase,
+    public CacheWarmerService(ListScoredGHReposRankingUseCase listScoredGHReposRankingUseCase,
                               UpdateScoreConfigUseCase updateScoreConfigUseCase,
                               Executor executor) {
-        this.calculatePopularityUseCase = calculatePopularityUseCase;
+        this.listScoredGHReposRankingUseCase = listScoredGHReposRankingUseCase;
         this.updateScoreConfigUseCase = updateScoreConfigUseCase;
         this.executor = executor;
     }
@@ -39,7 +39,7 @@ public class CacheWarmerService implements WarmCacheUseCase {
         ScoreConfig config = updateScoreConfigUseCase.getCurrentConfig();
         for (String lang : config.popularLanguages()) {
             try {
-                calculatePopularityUseCase.getPopularRepositories(
+                listScoredGHReposRankingUseCase.getPopularRepositories(
                         lang,
                         config.defaultCreatedAfter(),
                         config.defaultPopularityLimit()

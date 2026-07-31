@@ -4,26 +4,24 @@ import com.alns.rcpharm.ghreposscorer.domain.model.GitHubRepository;
 import com.alns.rcpharm.ghreposscorer.domain.model.ScoreConfig;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.GitHubRepositoryPort;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.ScoreConfigStoragePort;
-import com.alns.rcpharm.ghreposscorer.domain.util.GitHubLinkHeaderParser;
-import com.alns.rcpharm.ghreposscorer.quarkus.adapter.out.github.dto.GitHubRepositoryDto;
-import com.alns.rcpharm.ghreposscorer.quarkus.adapter.out.github.dto.GitHubSearchResponseDto;
+import com.alns.rcpharm.ghreposscorer.quarkus.adapter.out.github.utils.PaginationUtils;
 import io.quarkus.cache.CacheResult;
+import io.smallrye.faulttolerance.api.RateLimit;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import jakarta.ws.rs.core.Response;
 import org.eclipse.microprofile.faulttolerance.CircuitBreaker;
 import org.eclipse.microprofile.faulttolerance.Fallback;
-import io.smallrye.faulttolerance.api.RateLimit;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.jboss.logging.Logger;
 
-import java.net.URI;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Flow;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @ApplicationScoped
 public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
@@ -43,26 +41,34 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
     @Fallback(fallbackMethod = "fetchGitHubRepositoriesFallback")
     public List<GitHubRepository> fetchGitHubRepositories(String language, LocalDate createdAfter) {
         List<GitHubRepository> accumulated = new ArrayList<>();
+        ScoreConfig scoreConfig = scoreConfigStoragePort != null ? scoreConfigStoragePort.loadConfig() : null;
+
         try {
-            fetchPageStream(language, createdAfter, accumulated::addAll, () -> false);
+
+            PaginationUtils.fetchGHRepositoriesPaginated(
+                    gitHubRestClient,
+                    scoreConfig,
+                    language,
+                    createdAfter,
+                    accumulated::addAll,
+                    () -> false);
+
         } catch (Exception e) {
             log.warn("GitHub API request for language '" + language + "' returned error: " + e.getMessage() + ". Returning accumulated items.");
         }
         return accumulated;
     }
 
-    public List<GitHubRepository> fetchGitHubRepositoriesFallback(String language, LocalDate createdAfter) {
-        log.warn("Fallback triggered for fetchGitHubRepositories in Quarkus for language: " + language);
-        return Collections.emptyList();
-    }
-
     @Override
-    public java.util.concurrent.Flow.Publisher<List<GitHubRepository>> fetchGitHubRepositoriesPageStream(String language, LocalDate createdAfter) {
+    public Flow.Publisher<List<GitHubRepository>> fetchGitHubRepositoriesPageStream(String language, LocalDate createdAfter) {
+
+        ScoreConfig scoreConfig = scoreConfigStoragePort != null ? scoreConfigStoragePort.loadConfig() : null;
+
         return subscriber -> {
             if (subscriber == null) return;
             subscriber.onSubscribe(new java.util.concurrent.Flow.Subscription() {
-                private final java.util.concurrent.atomic.AtomicBoolean cancelled = new java.util.concurrent.atomic.AtomicBoolean(false);
-                private final java.util.concurrent.atomic.AtomicBoolean started = new java.util.concurrent.atomic.AtomicBoolean(false);
+                private final AtomicBoolean cancelled = new AtomicBoolean(false);
+                private final AtomicBoolean started = new AtomicBoolean(false);
 
                 @Override
                 public void request(long n) {
@@ -71,16 +77,22 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
                     }
 
                     ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
-                    java.util.concurrent.CompletableFuture.runAsync(() -> {
+                    CompletableFuture.runAsync(() -> {
                         if (contextClassLoader != null) {
                             Thread.currentThread().setContextClassLoader(contextClassLoader);
                         }
                         try {
-                            fetchPageStream(language, createdAfter, pageItems -> {
-                                if (!cancelled.get()) {
-                                    subscriber.onNext(pageItems);
-                                }
-                            }, cancelled::get);
+                            PaginationUtils.fetchGHRepositoriesPaginated(
+                                    gitHubRestClient,
+                                    scoreConfig,
+                                    language,
+                                    createdAfter,
+                                    pageItems -> {
+                                        if (!cancelled.get()) {
+                                            subscriber.onNext(pageItems);
+                                        }
+                                    }, cancelled::get
+                            );
 
                             if (!cancelled.get()) {
                                 subscriber.onComplete();
@@ -101,98 +113,9 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
         };
     }
 
-    private void fetchPageStream(String language, LocalDate createdAfter,
-                                 java.util.function.Consumer<List<GitHubRepository>> pageConsumer,
-                                 java.util.function.BooleanSupplier isCancelled) {
-        String query = String.format("language:%s created:>%s", language, createdAfter.toString());
-        String token = System.getenv("GITHUB_TOKEN");
-        String authHeader = (token != null && !token.isBlank()) ? "Bearer " + token : null;
-
-        ScoreConfig config = scoreConfigStoragePort != null ? scoreConfigStoragePort.loadConfig() : null;
-        boolean handlePagination = config != null ? Boolean.TRUE.equals(config.shouldHandleGHApiPagination()) : true;
-        int maxPages = config != null && config.maxPagesToFetch() != null ? config.maxPagesToFetch() : 5;
-        Long delay = config != null ? config.delayBetweenGHApiRequestsMillis() : null;
-
-        log.info("Fetching GitHub repositories for query: " + query);
-        int pageCount = 0;
-
-        try (Response response = gitHubRestClient.searchRepositories(
-                query, "stars", "desc", 100, "alns-rcpharm-ghrepos-scorer-quarkus", authHeader)) {
-
-            if (response.getStatus() == 429 || response.getStatus() == 403) {
-                throw new com.alns.rcpharm.ghreposscorer.domain.exception.GitHubRateLimitException("GitHub API Rate Limit / Access Limit exceeded (" + response.getStatus() + ")");
-            }
-
-            pageCount++;
-            if (response.getStatus() == 200) {
-                GitHubSearchResponseDto dto = response.readEntity(GitHubSearchResponseDto.class);
-                if (dto != null && dto.getItems() != null) {
-                    List<GitHubRepository> pageItems = dto.getItems().stream()
-                            .map(this::mapToDomain)
-                            .toList();
-                    if (!pageItems.isEmpty() && !isCancelled.getAsBoolean()) {
-                        pageConsumer.accept(pageItems);
-                    }
-                }
-
-                String linkHeader = response.getHeaderString("link");
-                Optional<URI> nextUriOpt = GitHubLinkHeaderParser.extractNextPageUri(linkHeader);
-
-                while (handlePagination && nextUriOpt.isPresent() && pageCount < maxPages && !isCancelled.getAsBoolean()) {
-                    if (delay != null && delay > 0) {
-                        try {
-                            Thread.sleep(delay);
-                        } catch (InterruptedException ie) {
-                            Thread.currentThread().interrupt();
-                            break;
-                        }
-                    }
-
-                    URI nextUri = nextUriOpt.get();
-                    log.info("Fetching next page " + (pageCount + 1) + " from URI: " + nextUri);
-
-                    try (Response nextResponse = gitHubRestClient.searchRepositoriesByUri(
-                            nextUri, "alns-rcpharm-ghrepos-scorer-quarkus", authHeader)) {
-
-                        if (nextResponse.getStatus() == 429 || nextResponse.getStatus() == 403) {
-                            throw new com.alns.rcpharm.ghreposscorer.domain.exception.GitHubRateLimitException("GitHub API Rate Limit / Access Limit exceeded on next page (" + nextResponse.getStatus() + ")");
-                        }
-
-                        pageCount++;
-                        if (nextResponse.getStatus() == 200) {
-                            GitHubSearchResponseDto nextDto = nextResponse.readEntity(GitHubSearchResponseDto.class);
-                            if (nextDto != null && nextDto.getItems() != null) {
-                                List<GitHubRepository> pageItems = nextDto.getItems().stream()
-                                        .map(this::mapToDomain)
-                                        .toList();
-                                if (!pageItems.isEmpty() && !isCancelled.getAsBoolean()) {
-                                    pageConsumer.accept(pageItems);
-                                }
-                            }
-                        }
-
-                        linkHeader = nextResponse.getHeaderString("link");
-                        if (linkHeader == null) {
-                            linkHeader = nextResponse.getHeaderString("Link");
-                        }
-                        nextUriOpt = GitHubLinkHeaderParser.extractNextPageUri(linkHeader);
-                    }
-                }
-            }
-        }
+    public List<GitHubRepository> fetchGitHubRepositoriesFallback(String language, LocalDate createdAfter) {
+        log.warn("Fallback triggered for fetchGitHubRepositories in Quarkus for language: " + language);
+        return Collections.emptyList();
     }
 
-    private GitHubRepository mapToDomain(GitHubRepositoryDto dto) {
-        return new GitHubRepository(
-                dto.getId() != null ? dto.getId() : "",
-                dto.getName() != null ? dto.getName() : "",
-                dto.getFullName() != null ? dto.getFullName() : "",
-                dto.getHtmlUrl(),
-                dto.getDescription(),
-                dto.getLanguage(),
-                dto.getStars(),
-                dto.getForks(),
-                dto.getPushedAt()
-        );
-    }
 }
