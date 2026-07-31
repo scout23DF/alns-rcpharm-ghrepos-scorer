@@ -1,32 +1,24 @@
 package com.alns.rcpharm.ghreposscorer.springboot.adapter.out.github;
 
-import com.alns.rcpharm.ghreposscorer.domain.exception.GitHubRateLimitException;
 import com.alns.rcpharm.ghreposscorer.domain.model.GitHubRepository;
 import com.alns.rcpharm.ghreposscorer.domain.model.ScoreConfig;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.GitHubRepositoryPort;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.ScoreConfigStoragePort;
-import com.alns.rcpharm.ghreposscorer.domain.util.GitHubLinkHeaderParser;
-import com.alns.rcpharm.ghreposscorer.springboot.adapter.out.github.dto.GitHubRepositoryDto;
-import com.alns.rcpharm.ghreposscorer.springboot.adapter.out.github.dto.GitHubSearchResponseDto;
+import com.alns.rcpharm.ghreposscorer.springboot.adapter.out.github.utils.PaginationUtils;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.Cacheable;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
-import java.net.URI;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.BooleanSupplier;
-import java.util.function.Consumer;
 
 @Component
 public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
@@ -47,8 +39,16 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
     @RateLimiter(name = "githubApi")
     public List<GitHubRepository> fetchGitHubRepositories(String language, LocalDate createdAfter) {
         List<GitHubRepository> accumulated = new ArrayList<>();
+        ScoreConfig scoreConfig = scoreConfigStoragePort != null ? scoreConfigStoragePort.loadConfig() : null;
         try {
-            fetchPageStream(language, createdAfter, accumulated::addAll, () -> false);
+            PaginationUtils.fetchGHRepositoriesPaginated(
+                    gitHubFeignClient,
+                    scoreConfig,
+                    language,
+                    createdAfter,
+                    accumulated::addAll,
+                    () -> false
+            );
         } catch (Exception e) {
             log.warn("GitHub API request for language '{}' returned error: {}. Returning accumulated items.", language, e.getMessage());
         }
@@ -62,6 +62,8 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
 
     @Override
     public Flow.Publisher<List<GitHubRepository>> fetchGitHubRepositoriesPageStream(String language, LocalDate createdAfter) {
+        ScoreConfig scoreConfig = scoreConfigStoragePort != null ? scoreConfigStoragePort.loadConfig() : null;
+
         return subscriber -> {
             if (subscriber == null) return;
             subscriber.onSubscribe(new java.util.concurrent.Flow.Subscription() {
@@ -80,27 +82,22 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
                             Thread.currentThread().setContextClassLoader(contextClassLoader);
                         }
                         try {
-                            fetchPageStream(language, createdAfter, pageItems -> {
-                                if (!cancelled.get()) {
-                                    subscriber.onNext(pageItems);
-                                }
-                            }, cancelled::get);
-
+                            PaginationUtils.fetchGHRepositoriesPaginated(
+                                    gitHubFeignClient,
+                                    scoreConfig,
+                                    language,
+                                    createdAfter,
+                                    pageItems -> {
+                                        if (!cancelled.get()) {
+                                            subscriber.onNext(pageItems);
+                                        }
+                                    }, cancelled::get
+                            );
+                        } catch (Throwable t) {
+                            log.warn("Error fetching GitHub repositories reactively in Spring Boot: {}. Completing stream with items fetched so far.", t.getMessage());
+                        } finally {
                             if (!cancelled.get()) {
                                 subscriber.onComplete();
-                            }
-                        } catch (feign.FeignException fe) {
-                            if (fe.status() == 429 || fe.status() == 403) {
-                                if (!cancelled.get()) {
-                                    subscriber.onError(new GitHubRateLimitException(
-                                            "GitHub API Rate Limit / Access Limit exceeded (" + fe.status() + ")"));
-                                }
-                            } else if (!cancelled.get()) {
-                                subscriber.onError(fe);
-                            }
-                        } catch (Throwable t) {
-                            if (!cancelled.get()) {
-                                subscriber.onError(t);
                             }
                         }
                     });
@@ -112,85 +109,5 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
                 }
             });
         };
-    }
-
-    private void fetchPageStream(String language, LocalDate createdAfter,
-                                 Consumer<List<GitHubRepository>> pageConsumer,
-                                 BooleanSupplier isCancelled) {
-        String query = String.format("language:%s created:>%s", language, createdAfter.toString());
-        String token = System.getenv("GITHUB_TOKEN");
-        String authHeader = (token != null && !token.isBlank()) ? "Bearer " + token : null;
-
-        ScoreConfig config = scoreConfigStoragePort != null ? scoreConfigStoragePort.loadConfig() : null;
-        boolean handlePagination = config != null ? Boolean.TRUE.equals(config.shouldHandleGHApiPagination()) : true;
-        int maxPages = config != null && config.maxPagesToFetch() != null ? config.maxPagesToFetch() : 5;
-        Long delay = config != null ? config.delayBetweenGHApiRequestsMillis() : null;
-
-        log.info("Fetching GitHub repositories for query: {}", query);
-        int pageCount = 0;
-
-        ResponseEntity<GitHubSearchResponseDto> responseEntity = gitHubFeignClient.searchRepositories(
-                query, "stars", "desc", 100, 1, "alns-rcpharm-ghrepos-scorer-springboot", authHeader
-        );
-        pageCount++;
-
-        if (responseEntity.getBody() != null && responseEntity.getBody().getItems() != null) {
-            List<GitHubRepository> pageItems = responseEntity.getBody().getItems().stream()
-                    .map(this::mapToDomain)
-                    .toList();
-            if (!pageItems.isEmpty() && !isCancelled.getAsBoolean()) {
-                pageConsumer.accept(pageItems);
-            }
-        }
-
-        String linkHeader = responseEntity.getHeaders().getFirst("link");
-        Optional<URI> nextUriOpt = GitHubLinkHeaderParser.extractNextPageUri(linkHeader);
-
-        while (handlePagination && nextUriOpt.isPresent() && pageCount < maxPages && !isCancelled.getAsBoolean()) {
-            if (delay != null && delay > 0) {
-                try {
-                    Thread.sleep(delay);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-            }
-
-            log.info("Fetching next page {} dynamically for query: {}", pageCount + 1, query);
-
-            ResponseEntity<GitHubSearchResponseDto> nextResponse = gitHubFeignClient.searchRepositories(
-                    query, "stars", "desc", 100, pageCount + 1, "alns-rcpharm-ghrepos-scorer-springboot", authHeader
-            );
-            pageCount++;
-
-            if (nextResponse.getBody() != null && nextResponse.getBody().getItems() != null) {
-                List<GitHubRepository> pageItems = nextResponse.getBody().getItems().stream()
-                        .map(this::mapToDomain)
-                        .toList();
-                if (!pageItems.isEmpty() && !isCancelled.getAsBoolean()) {
-                    pageConsumer.accept(pageItems);
-                }
-            }
-
-            linkHeader = nextResponse.getHeaders().getFirst("link");
-            if (linkHeader == null) {
-                linkHeader = nextResponse.getHeaders().getFirst("Link");
-            }
-            nextUriOpt = GitHubLinkHeaderParser.extractNextPageUri(linkHeader);
-        }
-    }
-
-    private GitHubRepository mapToDomain(GitHubRepositoryDto dto) {
-        return new GitHubRepository(
-                dto.getId() != null ? dto.getId() : "",
-                dto.getName() != null ? dto.getName() : "",
-                dto.getFullName() != null ? dto.getFullName() : "",
-                dto.getHtmlUrl(),
-                dto.getDescription(),
-                dto.getLanguage(),
-                dto.getStars(),
-                dto.getForks(),
-                dto.getPushedAt()
-        );
     }
 }
