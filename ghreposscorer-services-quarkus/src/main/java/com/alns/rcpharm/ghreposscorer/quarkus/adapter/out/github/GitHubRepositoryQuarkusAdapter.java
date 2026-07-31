@@ -5,6 +5,7 @@ import com.alns.rcpharm.ghreposscorer.domain.model.ScoreConfig;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.GitHubRepositoryPort;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.ScoreConfigStoragePort;
 import com.alns.rcpharm.ghreposscorer.quarkus.adapter.out.github.utils.PaginationUtils;
+import io.quarkus.cache.CacheManager;
 import io.quarkus.cache.CacheResult;
 import io.smallrye.faulttolerance.api.RateLimit;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -19,6 +20,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -34,6 +36,9 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
     @Inject
     ScoreConfigStoragePort scoreConfigStoragePort;
 
+    @Inject
+    CacheManager cacheManager;
+
     @Override
     @CacheResult(cacheName = "github-repositories")
     @CircuitBreaker(requestVolumeThreshold = 10, failureRatio = 0.5, delay = 10000, delayUnit = ChronoUnit.MILLIS)
@@ -44,7 +49,6 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
         ScoreConfig scoreConfig = scoreConfigStoragePort != null ? scoreConfigStoragePort.loadConfig() : null;
 
         try {
-
             PaginationUtils.fetchGHRepositoriesPaginated(
                     gitHubRestClient,
                     scoreConfig,
@@ -60,9 +64,56 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public Flow.Publisher<List<GitHubRepository>> fetchGitHubRepositoriesPageStream(String language, LocalDate createdAfter) {
-
         ScoreConfig scoreConfig = scoreConfigStoragePort != null ? scoreConfigStoragePort.loadConfig() : null;
+        List<GitHubRepository> cachedList = null;
+
+        if (cacheManager != null) {
+            Optional<io.quarkus.cache.Cache> cacheOpt = cacheManager.getCache("github-repositories");
+            if (cacheOpt.isPresent()) {
+                try {
+                    io.quarkus.cache.CompositeCacheKey key = new io.quarkus.cache.CompositeCacheKey(language, createdAfter);
+                    Object raw = cacheOpt.get().get(key, k -> null).await().indefinitely();
+                    if (raw instanceof List) {
+                        cachedList = (List<GitHubRepository>) raw;
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        }
+
+        if (cachedList != null && !cachedList.isEmpty()) {
+            log.info("Cache HIT for reactive page stream in Quarkus (language=" + language + ", createdAfter=" + createdAfter + ") with " + cachedList.size() + " items");
+            final List<GitHubRepository> finalCachedList = cachedList;
+            return subscriber -> {
+                if (subscriber == null) return;
+                subscriber.onSubscribe(new Flow.Subscription() {
+                    private final AtomicBoolean cancelled = new AtomicBoolean(false);
+                    private final AtomicBoolean started = new AtomicBoolean(false);
+
+                    @Override
+                    public void request(long n) {
+                        if (n <= 0 || cancelled.get() || !started.compareAndSet(false, true)) {
+                            return;
+                        }
+                        int pageSize = 100;
+                        for (int i = 0; i < finalCachedList.size() && !cancelled.get(); i += pageSize) {
+                            List<GitHubRepository> pageChunk = finalCachedList.subList(i, Math.min(i + pageSize, finalCachedList.size()));
+                            subscriber.onNext(pageChunk);
+                        }
+                        if (!cancelled.get()) {
+                            subscriber.onComplete();
+                        }
+                    }
+
+                    @Override
+                    public void cancel() {
+                        cancelled.set(true);
+                    }
+                });
+            };
+        }
 
         return subscriber -> {
             if (subscriber == null) return;
@@ -81,6 +132,7 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
                         if (contextClassLoader != null) {
                             Thread.currentThread().setContextClassLoader(contextClassLoader);
                         }
+                        List<GitHubRepository> accumulatedForCache = new ArrayList<>();
                         try {
                             PaginationUtils.fetchGHRepositoriesPaginated(
                                     gitHubRestClient,
@@ -89,6 +141,7 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
                                     createdAfter,
                                     pageItems -> {
                                         if (!cancelled.get()) {
+                                            accumulatedForCache.addAll(pageItems);
                                             subscriber.onNext(pageItems);
                                         }
                                     }, cancelled::get

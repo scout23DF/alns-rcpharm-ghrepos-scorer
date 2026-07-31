@@ -9,6 +9,9 @@ import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
 
@@ -26,11 +29,14 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
     private static final Logger log = LoggerFactory.getLogger(GitHubRepositorySpringAdapter.class);
     private final GitHubFeignClient gitHubFeignClient;
     private final ScoreConfigStoragePort scoreConfigStoragePort;
+    private final CacheManager cacheManager;
 
     public GitHubRepositorySpringAdapter(GitHubFeignClient gitHubFeignClient,
-                                         ScoreConfigStoragePort scoreConfigStoragePort) {
+                                         ScoreConfigStoragePort scoreConfigStoragePort,
+                                         @Autowired(required = false) CacheManager cacheManager) {
         this.gitHubFeignClient = gitHubFeignClient;
         this.scoreConfigStoragePort = scoreConfigStoragePort;
+        this.cacheManager = cacheManager;
     }
 
     @Override
@@ -61,12 +67,55 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public Flow.Publisher<List<GitHubRepository>> fetchGitHubRepositoriesPageStream(String language, LocalDate createdAfter) {
         ScoreConfig scoreConfig = scoreConfigStoragePort != null ? scoreConfigStoragePort.loadConfig() : null;
+        String cacheKey = language.toLowerCase() + "-" + createdAfter;
+        Cache cache = cacheManager != null ? cacheManager.getCache("github-repositories") : null;
+
+        List<GitHubRepository> cachedList = null;
+        if (cache != null) {
+            Cache.ValueWrapper valueWrapper = cache.get(cacheKey);
+            if (valueWrapper != null && valueWrapper.get() instanceof List) {
+                cachedList = (List<GitHubRepository>) valueWrapper.get();
+            }
+        }
+
+        if (cachedList != null && !cachedList.isEmpty()) {
+            log.info("Cache HIT for reactive page stream in Spring Boot (language={}, createdAfter={}) with {} items", language, createdAfter, cachedList.size());
+            final List<GitHubRepository> finalCachedList = cachedList;
+            return subscriber -> {
+                if (subscriber == null) return;
+                subscriber.onSubscribe(new Flow.Subscription() {
+                    private final AtomicBoolean cancelled = new AtomicBoolean(false);
+                    private final AtomicBoolean started = new AtomicBoolean(false);
+
+                    @Override
+                    public void request(long n) {
+                        if (n <= 0 || cancelled.get() || !started.compareAndSet(false, true)) {
+                            return;
+                        }
+                        int pageSize = 100;
+                        for (int i = 0; i < finalCachedList.size() && !cancelled.get(); i += pageSize) {
+                            List<GitHubRepository> pageChunk = finalCachedList.subList(i, Math.min(i + pageSize, finalCachedList.size()));
+                            subscriber.onNext(pageChunk);
+                        }
+                        if (!cancelled.get()) {
+                            subscriber.onComplete();
+                        }
+                    }
+
+                    @Override
+                    public void cancel() {
+                        cancelled.set(true);
+                    }
+                });
+            };
+        }
 
         return subscriber -> {
             if (subscriber == null) return;
-            subscriber.onSubscribe(new java.util.concurrent.Flow.Subscription() {
+            subscriber.onSubscribe(new Flow.Subscription() {
                 private final AtomicBoolean cancelled = new AtomicBoolean(false);
                 private final AtomicBoolean started = new AtomicBoolean(false);
 
@@ -81,6 +130,7 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
                         if (contextClassLoader != null) {
                             Thread.currentThread().setContextClassLoader(contextClassLoader);
                         }
+                        List<GitHubRepository> accumulatedForCache = new ArrayList<>();
                         try {
                             PaginationUtils.fetchGHRepositoriesPaginated(
                                     gitHubFeignClient,
@@ -89,6 +139,7 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
                                     createdAfter,
                                     pageItems -> {
                                         if (!cancelled.get()) {
+                                            accumulatedForCache.addAll(pageItems);
                                             subscriber.onNext(pageItems);
                                         }
                                     }, cancelled::get
@@ -96,6 +147,10 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
                         } catch (Throwable t) {
                             log.warn("Error fetching GitHub repositories reactively in Spring Boot: {}. Completing stream with items fetched so far.", t.getMessage());
                         } finally {
+                            if (cache != null && !accumulatedForCache.isEmpty()) {
+                                cache.put(cacheKey, accumulatedForCache);
+                                log.info("Populated cache for reactive stream in Spring Boot (language={}, createdAfter={}) with {} items", language, createdAfter, accumulatedForCache.size());
+                            }
                             if (!cancelled.get()) {
                                 subscriber.onComplete();
                             }
