@@ -76,11 +76,10 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
                     }
                 }
 
-                URI nextUri = nextUriOpt.get();
-                log.info("Fetching next page {} from URI: {}", pageCount + 1, nextUri);
+                log.info("Fetching next page {} for query: {}", pageCount + 1, query);
 
-                ResponseEntity<GitHubSearchResponseDto> nextResponse = gitHubFeignClient.searchRepositoriesByUri(
-                        nextUri, "alns-rcpharm-ghrepos-scorer-springboot", authHeader
+                ResponseEntity<GitHubSearchResponseDto> nextResponse = gitHubFeignClient.searchRepositories(
+                        query, "stars", "desc", 100, pageCount + 1, "alns-rcpharm-ghrepos-scorer-springboot", authHeader
                 );
                 pageCount++;
 
@@ -164,11 +163,10 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
                                     }
                                 }
 
-                                URI nextUri = nextUriOpt.get();
-                                log.info("Fetching next page {} dynamically from URI: {}", pageCount + 1, nextUri);
+                                log.info("Fetching next page {} dynamically for query: {}", pageCount + 1, query);
 
-                                ResponseEntity<GitHubSearchResponseDto> nextResponse = gitHubFeignClient.searchRepositoriesByUri(
-                                        nextUri, "alns-rcpharm-ghrepos-scorer-springboot", authHeader
+                                ResponseEntity<GitHubSearchResponseDto> nextResponse = gitHubFeignClient.searchRepositories(
+                                        query, "stars", "desc", 100, pageCount + 1, "alns-rcpharm-ghrepos-scorer-springboot", authHeader
                                 );
                                 pageCount++;
 
@@ -190,6 +188,15 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
 
                             if (!cancelled.get()) {
                                 subscriber.onComplete();
+                            }
+                        } catch (feign.FeignException fe) {
+                            if (fe.status() == 429 || fe.status() == 403) {
+                                if (!cancelled.get()) {
+                                    subscriber.onError(new com.alns.rcpharm.ghreposscorer.domain.exception.GitHubRateLimitException(
+                                            "GitHub API Rate Limit / Access Limit exceeded (" + fe.status() + ")"));
+                                }
+                            } else if (!cancelled.get()) {
+                                subscriber.onError(fe);
                             }
                         } catch (Throwable t) {
                             if (!cancelled.get()) {
