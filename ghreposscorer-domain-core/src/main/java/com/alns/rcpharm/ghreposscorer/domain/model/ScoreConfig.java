@@ -20,13 +20,13 @@ public record ScoreConfig(
     Integer maxPagesToFetch,
     Integer maxRetriesAttempts
 ) {
-    public static final List<String> DEFAULT_POPULAR_LANGUAGES = List.of("Java", "Kotlin", "Python", "C#", "Go", "TypeScript");
+    public static final List<String> DEFAULT_POPULAR_LANGUAGES = List.of("Java", "Python", "TypeScript");
     public static final LocalDate DEFAULT_CREATED_AFTER = LocalDate.of(2010, 1, 1);
     public static final Long DEFAULT_DELAY_BETWEEN_GHAPI_REQUESTS = 1000L;
     public static final Integer DEFAULT_POPULARITY_LIMIT = 30;
     public static final Boolean DEFAULT_SHOULD_HANDLE_GHAPI_PAGINATION = true;
-    public static final Integer DEFAULT_MAX_PAGES_TO_FETCH = 7;
-    public static final Integer DEFAULT_MAX_RETRIES_ATTEMPTS = 5;
+    public static final Integer DEFAULT_MAX_PAGES_TO_FETCH = 3;
+    public static final Integer DEFAULT_MAX_RETRIES_ATTEMPTS = 3;
 
     public ScoreConfig {
         if (popularLanguages == null) {

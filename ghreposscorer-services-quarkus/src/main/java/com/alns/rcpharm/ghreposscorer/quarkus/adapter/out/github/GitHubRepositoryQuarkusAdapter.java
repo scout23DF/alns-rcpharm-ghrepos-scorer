@@ -5,10 +5,8 @@ import com.alns.rcpharm.ghreposscorer.domain.model.ScoreConfig;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.GitHubRepositoryPort;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.ScoreConfigStoragePort;
 import com.alns.rcpharm.ghreposscorer.quarkus.adapter.out.github.utils.PaginationUtils;
-import io.quarkus.cache.Cache;
-import io.quarkus.cache.CacheManager;
+import com.alns.rcpharm.ghreposscorer.quarkus.adapter.out.github.utils.SimpleCacheManagerProxy;
 import io.quarkus.cache.CacheResult;
-import io.quarkus.cache.CompositeCacheKey;
 import io.smallrye.faulttolerance.api.RateLimit;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -22,7 +20,6 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -39,7 +36,7 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
     ScoreConfigStoragePort scoreConfigStoragePort;
 
     @Inject
-    CacheManager cacheManager;
+    SimpleCacheManagerProxy simpleCacheManagerProxy;
 
     @Override
     @CacheResult(cacheName = "github-repositories")
@@ -69,58 +66,62 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
     @SuppressWarnings("unchecked")
     public Flow.Publisher<List<GitHubRepository>> fetchGitHubRepositoriesPageStream(String language, LocalDate createdAfter) {
         ScoreConfig scoreConfig = scoreConfigStoragePort != null ? scoreConfigStoragePort.loadConfig() : null;
-        List<GitHubRepository> cachedList = null;
-        CompositeCacheKey key = new CompositeCacheKey(language, createdAfter);
 
-        Cache cache = Optional.ofNullable(cacheManager)
-                .flatMap(cm -> cm.getCache("github-repositories"))
-                .orElse(null);
+        if (simpleCacheManagerProxy.containsKey(language.toLowerCase(), createdAfter.toString())) {
+            log.info("Attempting to retrieve from CacheManager in Quarkus (language=" + language + ", createdAfter=" + createdAfter + ")");
+            return buildFlowPublisherFromCache(scoreConfig, language, createdAfter);
+        } else {
+            log.info("Cache MISS for reactive page stream in Quarkus (language=" + language + ", createdAfter=" + createdAfter + ")");
+            return buildFlowPublisherFromFetchAPI(scoreConfig, language, createdAfter);
+        }
 
-        if (cache != null) {
+    }
 
-            try {
-                Object raw = cache.get(key, k -> null).await().indefinitely();
-                if (raw instanceof List) {
-                    cachedList = (List<GitHubRepository>) raw;
-                }
-            } catch (Exception ignored) {
+    private Flow.Publisher<List<GitHubRepository>> buildFlowPublisherFromCache(
+            ScoreConfig scoreConfig,
+            String language,
+            LocalDate createdAfter
+    ) {
+
+        List<GitHubRepository> cachedList = simpleCacheManagerProxy.get(language.toLowerCase(), createdAfter.toString());
+
+        log.info("Cache HIT for reactive page stream in Quarkus (language=" + language + ", createdAfter=" + createdAfter + ") with " + cachedList.size() + " items");
+        final List<GitHubRepository> finalCachedList = cachedList;
+
+        return subscriber -> {
+            if (subscriber == null) {
+                return;
             }
+            subscriber.onSubscribe(new Flow.Subscription() {
+                private final AtomicBoolean cancelled = new AtomicBoolean(false);
+                private final AtomicBoolean started = new AtomicBoolean(false);
 
-        }
+                @Override
+                public void request(long n) {
+                    if (n <= 0 || cancelled.get() || !started.compareAndSet(false, true)) {
+                        return;
+                    }
 
-        if (cachedList != null && !cachedList.isEmpty()) {
-            log.info("Cache HIT for reactive page stream in Quarkus (language=" + language + ", createdAfter=" + createdAfter + ") with " + cachedList.size() + " items");
-            final List<GitHubRepository> finalCachedList = cachedList;
-            return subscriber -> {
-                if (subscriber == null) {
-                    return;
+                    subscriber.onNext(finalCachedList);
+
+                    if (!cancelled.get()) {
+                        subscriber.onComplete();
+                    }
                 }
-                subscriber.onSubscribe(new Flow.Subscription() {
-                    private final AtomicBoolean cancelled = new AtomicBoolean(false);
-                    private final AtomicBoolean started = new AtomicBoolean(false);
 
-                    @Override
-                    public void request(long n) {
-                        if (n <= 0 || cancelled.get() || !started.compareAndSet(false, true)) {
-                            return;
-                        }
-                        int pageSize = 100;
-                        for (int i = 0; i < finalCachedList.size() && !cancelled.get(); i += pageSize) {
-                            List<GitHubRepository> pageChunk = finalCachedList.subList(i, Math.min(i + pageSize, finalCachedList.size()));
-                            subscriber.onNext(pageChunk);
-                        }
-                        if (!cancelled.get()) {
-                            subscriber.onComplete();
-                        }
-                    }
+                @Override
+                public void cancel() {
+                    cancelled.set(true);
+                }
+            });
+        };
 
-                    @Override
-                    public void cancel() {
-                        cancelled.set(true);
-                    }
-                });
-            };
-        }
+    }
+
+    private Flow.Publisher<List<GitHubRepository>> buildFlowPublisherFromFetchAPI(
+            ScoreConfig scoreConfig,
+            String language,
+            LocalDate createdAfter) {
 
         return subscriber -> {
             if (subscriber == null) return;
@@ -156,18 +157,8 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
                         } catch (Throwable t) {
                             log.warn("Error fetching GitHub repositories reactively in Quarkus: " + t.getMessage() + ". Completing stream with items fetched so far.");
                         } finally {
-                            if (cacheManager != null && !accumulatedForCache.isEmpty()) {
-                                cacheManager.getCache("github-repositories").ifPresent(cache -> {
-                                    try {
-                                        io.quarkus.cache.CompositeCacheKey key = new io.quarkus.cache.CompositeCacheKey(language, createdAfter);
-                                        io.quarkus.cache.CaffeineCache caffeineCache = cache.as(io.quarkus.cache.CaffeineCache.class);
-                                        caffeineCache.put(key, CompletableFuture.completedFuture(accumulatedForCache));
-                                        log.info("Populated cache for reactive stream in Quarkus (language=" + language + ", createdAfter=" + createdAfter + ") with " + accumulatedForCache.size() + " items");
-                                    } catch (Exception e) {
-                                        log.warn("Failed to populate cache in Quarkus: " + e.getMessage());
-                                    }
-                                });
-                            }
+                            simpleCacheManagerProxy.put(accumulatedForCache, language.toLowerCase(), createdAfter.toString());
+                            log.info("Populated cache for reactive stream in Quarkus (language=" + language + ", createdAfter=" + createdAfter + ") with " + accumulatedForCache.size() + " items");
                             if (!cancelled.get()) {
                                 subscriber.onComplete();
                             }
@@ -181,6 +172,7 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
                 }
             });
         };
+
     }
 
     public List<GitHubRepository> fetchGitHubRepositoriesFallback(String language, LocalDate createdAfter) {
