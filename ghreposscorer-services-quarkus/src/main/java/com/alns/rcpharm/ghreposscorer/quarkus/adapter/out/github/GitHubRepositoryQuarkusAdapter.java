@@ -42,64 +42,12 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
     @RateLimit(value = 10, window = 1, windowUnit = ChronoUnit.MINUTES)
     @Fallback(fallbackMethod = "fetchGitHubRepositoriesFallback")
     public List<GitHubRepository> fetchGitHubRepositories(String language, LocalDate createdAfter) {
-        String query = String.format("language:%s created:>%s", language, createdAfter.toString());
-        String token = System.getenv("GITHUB_TOKEN");
-        String authHeader = (token != null && !token.isBlank()) ? "Bearer " + token : null;
-
-        ScoreConfig config = scoreConfigStoragePort != null ? scoreConfigStoragePort.loadConfig() : null;
-        boolean handlePagination = config != null ? Boolean.TRUE.equals(config.shouldHandleGHApiPagination()) : true;
-        int maxPages = config != null && config.maxPagesToFetch() != null ? config.maxPagesToFetch() : 5;
-
-        log.info("Fetching GitHub repositories for query: " + query);
         List<GitHubRepository> accumulated = new ArrayList<>();
-        int pageCount = 0;
-
-        try (Response response = gitHubRestClient.searchRepositories(
-                query, "stars", "desc", 100, "alns-rcpharm-ghrepos-scorer-quarkus", authHeader)) {
-
-            pageCount++;
-            GitHubSearchResponseDto dto = response.readEntity(GitHubSearchResponseDto.class);
-            if (dto != null && dto.getItems() != null) {
-                dto.getItems().stream().map(this::mapToDomain).forEach(accumulated::add);
-            }
-
-            String linkHeader = response.getHeaderString("link");
-            Optional<URI> nextUriOpt = GitHubLinkHeaderParser.extractNextPageUri(linkHeader);
-
-            while (handlePagination && nextUriOpt.isPresent() && pageCount < maxPages) {
-                Long delay = config != null ? config.delayBetweenGHApiRequestsMillis() : null;
-                if (delay != null && delay > 0) {
-                    try {
-                        Thread.sleep(delay);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
-                }
-
-                URI nextUri = nextUriOpt.get();
-                log.info("Fetching next page " + (pageCount + 1) + " from URI: " + nextUri);
-
-                try (Response nextResponse = gitHubRestClient.searchRepositoriesByUri(
-                        nextUri, "alns-rcpharm-ghrepos-scorer-quarkus", authHeader)) {
-
-                    pageCount++;
-                    GitHubSearchResponseDto nextDto = nextResponse.readEntity(GitHubSearchResponseDto.class);
-                    if (nextDto != null && nextDto.getItems() != null) {
-                        nextDto.getItems().stream().map(this::mapToDomain).forEach(accumulated::add);
-                    }
-
-                    linkHeader = nextResponse.getHeaderString("link");
-                    if (linkHeader == null) {
-                        linkHeader = nextResponse.getHeaderString("Link");
-                    }
-                    nextUriOpt = GitHubLinkHeaderParser.extractNextPageUri(linkHeader);
-                }
-            }
+        try {
+            fetchPageStream(language, createdAfter, accumulated::addAll, () -> false);
         } catch (Exception e) {
-            log.warn("GitHub API request for query '" + query + "' returned error: " + e.getMessage() + ". Returning accumulated items.");
+            log.warn("GitHub API request for language '" + language + "' returned error: " + e.getMessage() + ". Returning accumulated items.");
         }
-
         return accumulated;
     }
 
@@ -127,80 +75,12 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
                         if (contextClassLoader != null) {
                             Thread.currentThread().setContextClassLoader(contextClassLoader);
                         }
-                        String query = String.format("language:%s created:>%s", language, createdAfter.toString());
-                        String token = System.getenv("GITHUB_TOKEN");
-                        String authHeader = (token != null && !token.isBlank()) ? "Bearer " + token : null;
-
-                        ScoreConfig config = scoreConfigStoragePort != null ? scoreConfigStoragePort.loadConfig() : null;
-                        boolean handlePagination = config != null ? Boolean.TRUE.equals(config.shouldHandleGHApiPagination()) : true;
-                        int maxPages = config != null && config.maxPagesToFetch() != null ? config.maxPagesToFetch() : 5;
-
-                        int pageCount = 0;
-
-                        try (Response response = gitHubRestClient.searchRepositories(
-                                query, "stars", "desc", 100, "alns-rcpharm-ghrepos-scorer-quarkus", authHeader)) {
-
-                            if (response.getStatus() == 429 || response.getStatus() == 403) {
-                                throw new com.alns.rcpharm.ghreposscorer.domain.exception.GitHubRateLimitException("GitHub API Rate Limit / Access Limit exceeded (" + response.getStatus() + ")");
-                            }
-
-                            pageCount++;
-                            if (response.getStatus() == 200) {
-                                GitHubSearchResponseDto dto = response.readEntity(GitHubSearchResponseDto.class);
-                                if (dto != null && dto.getItems() != null) {
-                                    List<GitHubRepository> pageItems = dto.getItems().stream()
-                                            .map(GitHubRepositoryQuarkusAdapter.this::mapToDomain)
-                                            .toList();
-                                    if (!pageItems.isEmpty() && !cancelled.get()) {
-                                        subscriber.onNext(pageItems);
-                                    }
+                        try {
+                            fetchPageStream(language, createdAfter, pageItems -> {
+                                if (!cancelled.get()) {
+                                    subscriber.onNext(pageItems);
                                 }
-
-                                String linkHeader = response.getHeaderString("link");
-                                Optional<URI> nextUriOpt = GitHubLinkHeaderParser.extractNextPageUri(linkHeader);
-
-                                while (handlePagination && nextUriOpt.isPresent() && pageCount < maxPages && !cancelled.get()) {
-                                    Long delay = config != null ? config.delayBetweenGHApiRequestsMillis() : null;
-                                    if (delay != null && delay > 0) {
-                                        try {
-                                            Thread.sleep(delay);
-                                        } catch (InterruptedException ie) {
-                                            Thread.currentThread().interrupt();
-                                            break;
-                                        }
-                                    }
-
-                                    URI nextUri = nextUriOpt.get();
-                                    log.info("Fetching next page " + (pageCount + 1) + " from URI: " + nextUri);
-
-                                    try (Response nextResponse = gitHubRestClient.searchRepositoriesByUri(
-                                            nextUri, "alns-rcpharm-ghrepos-scorer-quarkus", authHeader)) {
-
-                                        if (nextResponse.getStatus() == 429 || nextResponse.getStatus() == 403) {
-                                            throw new com.alns.rcpharm.ghreposscorer.domain.exception.GitHubRateLimitException("GitHub API Rate Limit / Access Limit exceeded on next page (" + nextResponse.getStatus() + ")");
-                                        }
-
-                                        pageCount++;
-                                        if (nextResponse.getStatus() == 200) {
-                                            GitHubSearchResponseDto nextDto = nextResponse.readEntity(GitHubSearchResponseDto.class);
-                                            if (nextDto != null && nextDto.getItems() != null) {
-                                                List<GitHubRepository> pageItems = nextDto.getItems().stream()
-                                                        .map(GitHubRepositoryQuarkusAdapter.this::mapToDomain)
-                                                        .toList();
-                                                if (!pageItems.isEmpty() && !cancelled.get()) {
-                                                    subscriber.onNext(pageItems);
-                                                }
-                                            }
-                                        }
-
-                                        linkHeader = nextResponse.getHeaderString("link");
-                                        if (linkHeader == null) {
-                                            linkHeader = nextResponse.getHeaderString("Link");
-                                        }
-                                        nextUriOpt = GitHubLinkHeaderParser.extractNextPageUri(linkHeader);
-                                    }
-                                }
-                            }
+                            }, cancelled::get);
 
                             if (!cancelled.get()) {
                                 subscriber.onComplete();
@@ -219,6 +99,87 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
                 }
             });
         };
+    }
+
+    private void fetchPageStream(String language, LocalDate createdAfter,
+                                 java.util.function.Consumer<List<GitHubRepository>> pageConsumer,
+                                 java.util.function.BooleanSupplier isCancelled) {
+        String query = String.format("language:%s created:>%s", language, createdAfter.toString());
+        String token = System.getenv("GITHUB_TOKEN");
+        String authHeader = (token != null && !token.isBlank()) ? "Bearer " + token : null;
+
+        ScoreConfig config = scoreConfigStoragePort != null ? scoreConfigStoragePort.loadConfig() : null;
+        boolean handlePagination = config != null ? Boolean.TRUE.equals(config.shouldHandleGHApiPagination()) : true;
+        int maxPages = config != null && config.maxPagesToFetch() != null ? config.maxPagesToFetch() : 5;
+        Long delay = config != null ? config.delayBetweenGHApiRequestsMillis() : null;
+
+        log.info("Fetching GitHub repositories for query: " + query);
+        int pageCount = 0;
+
+        try (Response response = gitHubRestClient.searchRepositories(
+                query, "stars", "desc", 100, "alns-rcpharm-ghrepos-scorer-quarkus", authHeader)) {
+
+            if (response.getStatus() == 429 || response.getStatus() == 403) {
+                throw new com.alns.rcpharm.ghreposscorer.domain.exception.GitHubRateLimitException("GitHub API Rate Limit / Access Limit exceeded (" + response.getStatus() + ")");
+            }
+
+            pageCount++;
+            if (response.getStatus() == 200) {
+                GitHubSearchResponseDto dto = response.readEntity(GitHubSearchResponseDto.class);
+                if (dto != null && dto.getItems() != null) {
+                    List<GitHubRepository> pageItems = dto.getItems().stream()
+                            .map(this::mapToDomain)
+                            .toList();
+                    if (!pageItems.isEmpty() && !isCancelled.getAsBoolean()) {
+                        pageConsumer.accept(pageItems);
+                    }
+                }
+
+                String linkHeader = response.getHeaderString("link");
+                Optional<URI> nextUriOpt = GitHubLinkHeaderParser.extractNextPageUri(linkHeader);
+
+                while (handlePagination && nextUriOpt.isPresent() && pageCount < maxPages && !isCancelled.getAsBoolean()) {
+                    if (delay != null && delay > 0) {
+                        try {
+                            Thread.sleep(delay);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            break;
+                        }
+                    }
+
+                    URI nextUri = nextUriOpt.get();
+                    log.info("Fetching next page " + (pageCount + 1) + " from URI: " + nextUri);
+
+                    try (Response nextResponse = gitHubRestClient.searchRepositoriesByUri(
+                            nextUri, "alns-rcpharm-ghrepos-scorer-quarkus", authHeader)) {
+
+                        if (nextResponse.getStatus() == 429 || nextResponse.getStatus() == 403) {
+                            throw new com.alns.rcpharm.ghreposscorer.domain.exception.GitHubRateLimitException("GitHub API Rate Limit / Access Limit exceeded on next page (" + nextResponse.getStatus() + ")");
+                        }
+
+                        pageCount++;
+                        if (nextResponse.getStatus() == 200) {
+                            GitHubSearchResponseDto nextDto = nextResponse.readEntity(GitHubSearchResponseDto.class);
+                            if (nextDto != null && nextDto.getItems() != null) {
+                                List<GitHubRepository> pageItems = nextDto.getItems().stream()
+                                        .map(this::mapToDomain)
+                                        .toList();
+                                if (!pageItems.isEmpty() && !isCancelled.getAsBoolean()) {
+                                    pageConsumer.accept(pageItems);
+                                }
+                            }
+                        }
+
+                        linkHeader = nextResponse.getHeaderString("link");
+                        if (linkHeader == null) {
+                            linkHeader = nextResponse.getHeaderString("Link");
+                        }
+                        nextUriOpt = GitHubLinkHeaderParser.extractNextPageUri(linkHeader);
+                    }
+                }
+            }
+        }
     }
 
     private GitHubRepository mapToDomain(GitHubRepositoryDto dto) {
