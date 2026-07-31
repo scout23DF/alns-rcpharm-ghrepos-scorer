@@ -93,13 +93,11 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
                                         }
                                     }, cancelled::get
                             );
-
+                        } catch (Throwable t) {
+                            log.warn("Error fetching GitHub repositories reactively in Quarkus: " + t.getMessage() + ". Completing stream with items fetched so far.");
+                        } finally {
                             if (!cancelled.get()) {
                                 subscriber.onComplete();
-                            }
-                        } catch (Throwable t) {
-                            if (!cancelled.get()) {
-                                subscriber.onError(t);
                             }
                         }
                     });
