@@ -63,7 +63,7 @@ public class GitHubScoreResource {
     @RestStreamElementType(MediaType.APPLICATION_JSON)
     @Blocking
     @Operation(summary = "Stream popular GitHub repositories as Server-Sent Events (SSE)")
-    public Multi<PopularityScore> getPopularRepositoriesStream(
+    public Multi<List<PopularityScore>> getPopularRepositoriesStream(
             @QueryParam("language") String language,
             @QueryParam("created_after") String createdAfterStr,
             @DefaultValue("30") @QueryParam("limit") int limit) {
@@ -76,7 +76,7 @@ public class GitHubScoreResource {
         }
 
         LocalDate createdAfter = LocalDate.parse(createdAfterStr);
-        Flow.Publisher<PopularityScore> publisher = listScoredGHReposRankingStreamUseCase.getPopularRepositoriesStream(language, createdAfter, limit);
+        Flow.Publisher<List<PopularityScore>> publisher = listScoredGHReposRankingStreamUseCase.getPopularRepositoriesStream(language, createdAfter, limit);
 
         return Multi.createFrom().publisher(publisher)
                 .onFailure(GitHubRateLimitException.class)

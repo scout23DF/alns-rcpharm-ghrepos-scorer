@@ -88,7 +88,9 @@ public class PaginationUtils {
         }
     }
 
-    private static void handleResponseMapping(Consumer<List<GitHubRepository>> pageConsumer, BooleanSupplier isCancelled, Response response) {
+    private static void handleResponseMapping(Consumer<List<GitHubRepository>> pageConsumer,
+                                              BooleanSupplier isCancelled,
+                                              Response response) {
         GitHubSearchResponseDto dto = response.readEntity(GitHubSearchResponseDto.class);
         if (dto != null && dto.getItems() != null) {
             List<GitHubRepository> pageItems = dto.getItems().stream()

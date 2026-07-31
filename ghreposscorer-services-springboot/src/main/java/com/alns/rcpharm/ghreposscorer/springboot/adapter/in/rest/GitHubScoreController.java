@@ -55,12 +55,12 @@ public class GitHubScoreController {
 
     @GetMapping(value = "/repositories/popular/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "Stream popular GitHub repositories as Server-Sent Events (SSE)")
-    public Flux<PopularityScore> getPopularRepositoriesStream(
+    public Flux<List<PopularityScore>> getPopularRepositoriesStream(
             @RequestParam("language") String language,
             @RequestParam("created_after") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate createdAfter,
             @RequestParam(value = "limit", defaultValue = "30") int limit) {
 
-        Flow.Publisher<PopularityScore> publisher = listScoredGHReposRankingStreamUseCase.getPopularRepositoriesStream(language, createdAfter, limit);
+        Flow.Publisher<List<PopularityScore>> publisher = listScoredGHReposRankingStreamUseCase.getPopularRepositoriesStream(language, createdAfter, limit);
 
         return Flux.from(FlowAdapters.toPublisher(publisher))
                 .retryWhen(Retry.backoff(5, Duration.ofSeconds(2))

@@ -15,6 +15,7 @@ import com.alns.rcpharm.ghreposscorer.domain.service.UpdateScoreConfigService;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
 
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicReference;
@@ -43,7 +44,7 @@ public class AppWiringSpringConfig {
     public UpdateScoreConfigUseCase updateScoreConfigUseCase(
             ScoreConfigStoragePort scoreConfigStoragePort,
             CacheInvalidatorPort cacheInvalidatorPort,
-            @org.springframework.context.annotation.Lazy WarmCacheUseCase warmCacheUseCase) {
+            @Lazy WarmCacheUseCase warmCacheUseCase) {
         return new UpdateScoreConfigService(scoreConfigStoragePort, cacheInvalidatorPort, warmCacheUseCase);
     }
 

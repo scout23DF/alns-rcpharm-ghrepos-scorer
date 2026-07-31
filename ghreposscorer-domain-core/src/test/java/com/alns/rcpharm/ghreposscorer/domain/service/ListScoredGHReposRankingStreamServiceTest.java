@@ -42,10 +42,10 @@ class ListScoredGHReposRankingStreamServiceTest {
                 "Desc", "java", 100, 50, FIXED_NOW);
         gitHubRepositoryPort.setRepositories(List.of(repo));
 
-        Flow.Publisher<PopularityScore> publisher = streamService.getPopularRepositoriesStream("java", LocalDate.of(2020, 1, 1), 5);
+        Flow.Publisher<List<PopularityScore>> publisher = streamService.getPopularRepositoriesStream("java", LocalDate.of(2020, 1, 1), 5);
         assertThat(publisher).isNotNull();
 
-        List<PopularityScore> streamed = new ArrayList<>();
+        List<List<PopularityScore>> streamed = new ArrayList<>();
         publisher.subscribe(new Flow.Subscriber<>() {
             @Override
             public void onSubscribe(Flow.Subscription subscription) {
@@ -53,7 +53,7 @@ class ListScoredGHReposRankingStreamServiceTest {
             }
 
             @Override
-            public void onNext(PopularityScore item) {
+            public void onNext(List<PopularityScore> item) {
                 streamed.add(item);
             }
 
@@ -67,7 +67,8 @@ class ListScoredGHReposRankingStreamServiceTest {
         });
 
         assertThat(streamed).hasSize(1);
-        assertThat(streamed.get(0).repository().id()).isEqualTo("1");
+        assertThat(streamed.get(0)).hasSize(1);
+        assertThat(streamed.get(0).get(0).repository().id()).isEqualTo("1");
     }
 
     private static class MockUpdateScoreConfigUseCase implements UpdateScoreConfigUseCase {

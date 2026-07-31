@@ -37,7 +37,7 @@ public class ListScoredGHReposRankingStreamService extends AbstractCalculatedGHR
     }
 
     @Override
-    public Flow.Publisher<PopularityScore> getPopularRepositoriesStream(String language, LocalDate createdAfter, int limit) {
+    public Flow.Publisher<List<PopularityScore>> getPopularRepositoriesStream(String language, LocalDate createdAfter, int limit) {
         Objects.requireNonNull(language, "language must not be null");
         Objects.requireNonNull(createdAfter, "createdAfter must not be null");
 
@@ -78,17 +78,21 @@ public class ListScoredGHReposRankingStreamService extends AbstractCalculatedGHR
 
                     List<PopularityScore> pageScores = pageRepos.stream()
                             .map(repo -> calculatePopularityScore(repo, config, now))
-                            .sorted(Comparator.comparingDouble(PopularityScore::score).reversed())
                             .toList();
 
                     int effectiveLimit = limit > 0 ? limit : Integer.MAX_VALUE;
-                    List<PopularityScore> itemsToEmit = pageScores.stream()
-                            .limit(effectiveLimit)
-                            .toList();
+                    List<PopularityScore> currentTopRanking;
 
-                    for (PopularityScore score : itemsToEmit) {
-                        subscriber.onNext(score);
+                    synchronized (accumulatedScores) {
+                        accumulatedScores.addAll(pageScores);
+                        accumulatedScores.sort(Comparator.comparingDouble(PopularityScore::score).reversed());
+
+                        currentTopRanking = accumulatedScores.stream()
+                                .limit(effectiveLimit)
+                                .toList();
                     }
+
+                    subscriber.onNext(currentTopRanking);
                 }
 
                 @Override
