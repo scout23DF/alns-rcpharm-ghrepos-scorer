@@ -142,21 +142,15 @@ public class PopularityCalculatorService implements CalculatePopularityUseCase, 
 
                     List<PopularityScore> pageScores = pageRepos.stream()
                             .map(repo -> calculatePopularityScore(repo, config, now))
+                            .sorted(Comparator.comparingDouble(PopularityScore::score).reversed())
                             .toList();
 
                     int effectiveLimit = limit > 0 ? limit : Integer.MAX_VALUE;
-                    List<PopularityScore> topRankingToEmit;
+                    List<PopularityScore> itemsToEmit = pageScores.stream()
+                            .limit(effectiveLimit)
+                            .toList();
 
-                    synchronized (accumulatedScores) {
-                        accumulatedScores.addAll(pageScores);
-                        accumulatedScores.sort(Comparator.comparingDouble(PopularityScore::score).reversed());
-
-                        topRankingToEmit = accumulatedScores.stream()
-                                .limit(effectiveLimit)
-                                .toList();
-                    }
-
-                    for (PopularityScore score : topRankingToEmit) {
+                    for (PopularityScore score : itemsToEmit) {
                         subscriber.onNext(score);
                     }
                 }
