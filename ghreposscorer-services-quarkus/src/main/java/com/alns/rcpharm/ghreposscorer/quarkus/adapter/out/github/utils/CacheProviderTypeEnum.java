@@ -10,6 +10,7 @@ public enum CacheProviderTypeEnum {
 
     CAFFEINE(CaffeineCache.class),
     REDIS(Void.class),
+    GENERIC(Cache.class),
     UNKNOWN(Void.class);
 
     private Class<?> cacheImplClazz;
@@ -28,13 +29,15 @@ public enum CacheProviderTypeEnum {
                 .orElse(null);
 
         if (cacheGitRepos != null) {
-            CaffeineCache caffeineCache = cacheGitRepos.as(CaffeineCache.class);
-            if (caffeineCache != null) {
-                return CAFFEINE;
+            try {
+                CaffeineCache caffeineCache = cacheGitRepos.as(CaffeineCache.class);
+                if (caffeineCache != null) {
+                    return CAFFEINE;
+                }
+            } catch (Exception ignored) {
             }
+            return REDIS;
         }
-
-        // Add logic for Redis detection if needed
 
         return UNKNOWN;
     }
