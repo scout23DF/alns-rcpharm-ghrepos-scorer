@@ -209,14 +209,19 @@ docker-compose up --build
 
 ### 3. Run CLI Application
 
-- **Standard Executable JAR**:
+- **Synchronous Mode (Default)**:
   ```bash
   java -jar ghreposscorer-util-cli/target/quarkus-app/quarkus-run.jar -l Kotlin -n 10
   ```
 
+- **Reactive Stream Mode (`-s` / `--stream`)**:
+  ```bash
+  java -jar ghreposscorer-util-cli/target/quarkus-app/quarkus-run.jar -l Java -n 10 -s
+  ```
+
 - **GraalVM Native Executable Binary**:
   ```bash
-  ./ghreposscorer-util-cli/target/ghreposscorer-util-cli-runner -l Java -n 10
+  ./ghreposscorer-util-cli/target/ghreposscorer-util-cli-runner -l Java -n 10 -s
   ```
 
 ### 4. Deploy to Kubernetes
