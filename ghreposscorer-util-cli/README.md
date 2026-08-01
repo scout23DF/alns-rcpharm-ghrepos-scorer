@@ -22,12 +22,12 @@ mvn clean package -pl ghreposscorer-util-cli -am
 
 - **Query Popular Repositories for a Specific Language**:
   ```bash
-  java -jar ghreposscorer-util-cli/target/quarkus-app/quarkus-run.jar -l Kotlin -n 5
+  java -jar ghreposscorer-util-cli/target/quarkus-app/quarkus-run.jar -l Kotlin -n 5 -s
   ```
 
 - **Custom Date Filter and Limit**:
   ```bash
-  java -jar ghreposscorer-util-cli/target/quarkus-app/quarkus-run.jar --language Java --created-after 2015-01-01 --limit 10
+  java -jar ghreposscorer-util-cli/target/quarkus-app/quarkus-run.jar --language Java --created-after 2015-01-01 --limit 10 --stream
   ```
 
 ---
@@ -55,7 +55,7 @@ mvn package -Pnative -Dquarkus.native.container-build=true -pl ghreposscorer-uti
 
 - **Run Ranking Query**:
   ```bash
-  ./ghreposscorer-util-cli/target/ghreposscorer-util-cli-runner -l Go -n 5
+  ./ghreposscorer-util-cli/target/ghreposscorer-util-cli-runner -l Go -n 5 -s
   ```
 
 ---

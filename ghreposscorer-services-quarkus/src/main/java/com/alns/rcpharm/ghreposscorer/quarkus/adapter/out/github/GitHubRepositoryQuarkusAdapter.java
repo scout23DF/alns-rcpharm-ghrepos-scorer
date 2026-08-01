@@ -6,7 +6,6 @@ import com.alns.rcpharm.ghreposscorer.domain.port.out.GitHubRepositoryPort;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.ScoreConfigStoragePort;
 import com.alns.rcpharm.ghreposscorer.quarkus.adapter.out.github.utils.PaginationUtils;
 import com.alns.rcpharm.ghreposscorer.quarkus.adapter.out.github.utils.SimpleCacheManagerProxy;
-import io.quarkus.cache.CacheResult;
 import io.smallrye.faulttolerance.api.RateLimit;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -39,11 +38,22 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
     SimpleCacheManagerProxy simpleCacheManagerProxy;
 
     @Override
-    @CacheResult(cacheName = "github-repositories", keyGenerator = SimpleCacheManagerProxy.class)
     @CircuitBreaker(requestVolumeThreshold = 10, failureRatio = 0.5, delay = 10000, delayUnit = ChronoUnit.MILLIS)
     @RateLimit(value = 10, window = 1, windowUnit = ChronoUnit.MINUTES)
     @Fallback(fallbackMethod = "fetchGitHubRepositoriesFallback")
     public List<GitHubRepository> fetchGitHubRepositories(String language, LocalDate createdAfter) {
+        String langKey = language.toLowerCase();
+        String dateKey = createdAfter.toString();
+
+        if (simpleCacheManagerProxy.containsValidListOf(langKey, dateKey)) {
+            log.info("Cache HIT for fetchGitHubRepositories in Quarkus (language=" + language + ", createdAfter=" + createdAfter + ")");
+            List<GitHubRepository> cachedList = simpleCacheManagerProxy.get(langKey, dateKey);
+            if (cachedList != null && !cachedList.isEmpty()) {
+                return cachedList;
+            }
+        }
+
+        log.info("Cache MISS for fetchGitHubRepositories in Quarkus (language=" + language + ", createdAfter=" + createdAfter + ")");
         List<GitHubRepository> accumulated = new ArrayList<>();
         ScoreConfig scoreConfig = scoreConfigStoragePort != null ? scoreConfigStoragePort.loadConfig() : null;
 
@@ -55,6 +65,11 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
                     createdAfter,
                     accumulated::addAll,
                     () -> false);
+
+            if (!accumulated.isEmpty()) {
+                simpleCacheManagerProxy.put(accumulated, langKey, dateKey);
+                log.info("Populated cache for fetchGitHubRepositories in Quarkus (language=" + language + ", createdAfter=" + createdAfter + ") with " + accumulated.size() + " items");
+            }
 
         } catch (Exception e) {
             log.warn("GitHub API request for language '" + language + "' returned error: " + e.getMessage() + ". Returning accumulated items.");
