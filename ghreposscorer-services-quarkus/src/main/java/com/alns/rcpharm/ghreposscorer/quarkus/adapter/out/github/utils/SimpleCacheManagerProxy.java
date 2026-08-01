@@ -20,107 +20,94 @@ public class SimpleCacheManagerProxy {
     @Inject
     private CacheManager cacheManager;
 
-    private Cache genericCache;
+    private Cache gitHubReposCache;
     private CaffeineCache caffeineCache;
     private RedisCache redisCache;
     private CacheProviderTypeEnum cacheProviderType = CacheProviderTypeEnum.UNKNOWN;
 
     private synchronized void initialize() {
-        if (genericCache != null) {
+        if (gitHubReposCache != null) {
             return;
         }
-        genericCache = Optional.ofNullable(cacheManager)
+        gitHubReposCache = Optional.ofNullable(cacheManager)
                 .flatMap(cm -> cm.getCache("github-repositories"))
                 .orElse(null);
 
-        if (genericCache != null) {
-            if (genericCache instanceof CaffeineCache cc) {
-                this.caffeineCache = cc;
-                this.cacheProviderType = CacheProviderTypeEnum.CAFFEINE;
-            } else if (genericCache instanceof RedisCache rc) {
-                this.redisCache = rc;
-                this.cacheProviderType = CacheProviderTypeEnum.REDIS;
-            } else {
-                try {
-                    this.caffeineCache = genericCache.as(CaffeineCache.class);
+        if (gitHubReposCache != null) {
+
+            switch (CacheProviderTypeEnum.fromCacheManager(cacheManager)) {
+                case CAFFEINE:
+                    this.caffeineCache = (CaffeineCache) gitHubReposCache;
                     this.cacheProviderType = CacheProviderTypeEnum.CAFFEINE;
-                } catch (Exception e1) {
-                    try {
-                        this.redisCache = genericCache.as(RedisCache.class);
-                        this.cacheProviderType = CacheProviderTypeEnum.REDIS;
-                    } catch (Exception e2) {
-                        this.cacheProviderType = CacheProviderTypeEnum.GENERIC;
-                    }
-                }
+                    break;
+                case REDIS:
+                    this.redisCache = (RedisCache) gitHubReposCache;
+                    this.cacheProviderType = CacheProviderTypeEnum.REDIS;
+                    break;
+                default:
+                    this.cacheProviderType = CacheProviderTypeEnum.UNKNOWN;
+                    break;
             }
         }
     }
 
     public boolean containsKey(String... keyAttribsArray) {
         initialize();
-        if (genericCache == null) {
-            return false;
+
+        switch (cacheProviderType) {
+            case CAFFEINE:
+                CompositeCacheKey key = new CompositeCacheKey(keyAttribsArray);
+                return this.caffeineCache.getIfPresent(key) != null;
+            case REDIS:
+                String strKey = keyAttribsArray[0] + "-" + keyAttribsArray[1];
+                return this.redisCache.getOrNull(strKey) != null;
+            default:
+                return false;
         }
 
-        CompositeCacheKey key = new CompositeCacheKey(keyAttribsArray);
-
-        if (caffeineCache != null) {
-            return caffeineCache.getIfPresent(key) != null;
-        }
-
-        try {
-            Object result = genericCache.get(key, k -> null).await().indefinitely();
-            return result != null;
-        } catch (Exception e) {
-            log.debugf("Cache miss or error checking key %s: %s", key, e.getMessage());
-            return false;
-        }
     }
 
     @SuppressWarnings("unchecked")
     public <TObjResult> TObjResult get(String... keyAttribsArray) {
         initialize();
-        if (genericCache == null) {
-            return null;
-        }
 
-        CompositeCacheKey key = new CompositeCacheKey(keyAttribsArray);
-
-        if (caffeineCache != null) {
-            try {
-                CompletableFuture<Object> future = caffeineCache.getIfPresent(key);
-                return future != null ? (TObjResult) future.get() : null;
-            } catch (Exception e) {
-                log.warn("Error retrieving value from Caffeine cache for key: " + key + ". Exception: " + e.getMessage());
+        switch (cacheProviderType) {
+            case CAFFEINE:
+                CompositeCacheKey key = new CompositeCacheKey(keyAttribsArray);
+                try {
+                return (TObjResult) caffeineCache.getIfPresent(key).get();
+                } catch (Exception e) {
+                    log.warn("Error retrieving value from Caffeine cache for key: " + key + ". Exception: " + e.getMessage());
+                    return null;
+                }
+            case REDIS:
+                String strKey = keyAttribsArray[0] + "-" + keyAttribsArray[1];
+                return (TObjResult) redisCache.get(strKey, k -> null).await().indefinitely();
+            default:
                 return null;
-            }
         }
 
-        try {
-            return (TObjResult) genericCache.get(key, k -> null).await().indefinitely();
-        } catch (Exception e) {
-            log.warn("Error retrieving value from Redis/Generic cache for key: " + key + ". Exception: " + e.getMessage());
-            return null;
-        }
     }
 
     public void put(Object valueToStore, String... keyAttribsArray) {
         initialize();
-        if (genericCache == null || valueToStore == null) {
-            return;
+
+        switch (cacheProviderType) {
+            case CAFFEINE:
+                CompositeCacheKey key = new CompositeCacheKey(keyAttribsArray);
+                try {
+                    caffeineCache.put(key, CompletableFuture.completedFuture(valueToStore));
+                } catch (Exception e) {
+                    log.warn("Error storing value in Caffeine cache for key: " + key + ". Exception: " + e.getMessage());
+                }
+                break;
+            case REDIS:
+                String strKey = keyAttribsArray[0] + "-" + keyAttribsArray[1];
+                redisCache.put(strKey, valueToStore).await().indefinitely();
+                break;
+            default:
+                break;
         }
 
-        CompositeCacheKey key = new CompositeCacheKey(keyAttribsArray);
-
-        if (caffeineCache != null) {
-            caffeineCache.put(key, CompletableFuture.completedFuture(valueToStore));
-            return;
-        }
-
-        try {
-            genericCache.get(key, k -> valueToStore).await().indefinitely();
-        } catch (Exception e) {
-            log.warn("Error storing value into Redis/Generic cache for key: " + key + ". Exception: " + e.getMessage());
-        }
     }
 }

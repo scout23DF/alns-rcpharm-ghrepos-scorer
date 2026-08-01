@@ -11,7 +11,6 @@ public enum CacheProviderTypeEnum {
 
     CAFFEINE,
     REDIS,
-    GENERIC,
     UNKNOWN;
 
     public static CacheProviderTypeEnum fromCacheManager(CacheManager cacheManager) {
@@ -30,19 +29,6 @@ public enum CacheProviderTypeEnum {
             if (cacheGitRepos instanceof RedisCache) {
                 return REDIS;
             }
-            try {
-                if (cacheGitRepos.as(CaffeineCache.class) != null) {
-                    return CAFFEINE;
-                }
-            } catch (Exception ignored) {
-            }
-            try {
-                if (cacheGitRepos.as(RedisCache.class) != null) {
-                    return REDIS;
-                }
-            } catch (Exception ignored) {
-            }
-            return GENERIC;
         }
 
         return UNKNOWN;
