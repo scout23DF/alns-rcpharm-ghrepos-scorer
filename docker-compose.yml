@@ -12,6 +12,17 @@ services:
       timeout: 3s
       retries: 5
 
+  redis-commander:
+    image: ghcr.io/joeferner/redis-commander:latest
+    container_name: redis-commander
+    hostname: redis-commander
+    restart: always
+    environment:
+      - REDIS_HOSTS=local:redis-cache:6379
+    ports:
+      - "8085:8081"
+    user: redis
+
   ghreposscorer-springboot:
     build:
       context: .

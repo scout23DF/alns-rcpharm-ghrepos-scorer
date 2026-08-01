@@ -63,69 +63,12 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public Flow.Publisher<List<GitHubRepository>> fetchGitHubRepositoriesPageStream(String language, LocalDate createdAfter) {
         ScoreConfig scoreConfig = scoreConfigStoragePort != null ? scoreConfigStoragePort.loadConfig() : null;
 
-        if (simpleCacheManagerProxy.containsKey(language.toLowerCase(), createdAfter.toString())) {
-            log.info("Attempting to retrieve from CacheManager in Quarkus (language=" + language + ", createdAfter=" + createdAfter + ")");
-            return buildFlowPublisherFromCache(scoreConfig, language, createdAfter);
-        } else {
-            log.info("Cache MISS for reactive page stream in Quarkus (language=" + language + ", createdAfter=" + createdAfter + ")");
-            return buildFlowPublisherFromFetchAPI(scoreConfig, language, createdAfter);
-        }
-
-    }
-
-    private Flow.Publisher<List<GitHubRepository>> buildFlowPublisherFromCache(
-            ScoreConfig scoreConfig,
-            String language,
-            LocalDate createdAfter
-    ) {
-
-        List<GitHubRepository> cachedList = simpleCacheManagerProxy.get(language.toLowerCase(), createdAfter.toString());
-
-        log.info("Cache HIT for reactive page stream in Quarkus (language=" + language + ", createdAfter=" + createdAfter + ") with " + cachedList.size() + " items");
-        final List<GitHubRepository> finalCachedList = cachedList;
-
-        return subscriber -> {
-            if (subscriber == null) {
-                return;
-            }
-            subscriber.onSubscribe(new Flow.Subscription() {
-                private final AtomicBoolean cancelled = new AtomicBoolean(false);
-                private final AtomicBoolean started = new AtomicBoolean(false);
-
-                @Override
-                public void request(long n) {
-                    if (n <= 0 || cancelled.get() || !started.compareAndSet(false, true)) {
-                        return;
-                    }
-
-                    subscriber.onNext(finalCachedList);
-
-                    if (!cancelled.get()) {
-                        subscriber.onComplete();
-                    }
-                }
-
-                @Override
-                public void cancel() {
-                    cancelled.set(true);
-                }
-            });
-        };
-
-    }
-
-    private Flow.Publisher<List<GitHubRepository>> buildFlowPublisherFromFetchAPI(
-            ScoreConfig scoreConfig,
-            String language,
-            LocalDate createdAfter) {
-
         return subscriber -> {
             if (subscriber == null) return;
-            subscriber.onSubscribe(new java.util.concurrent.Flow.Subscription() {
+            subscriber.onSubscribe(new Flow.Subscription() {
                 private final AtomicBoolean cancelled = new AtomicBoolean(false);
                 private final AtomicBoolean started = new AtomicBoolean(false);
 
@@ -140,25 +83,39 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
                         if (contextClassLoader != null) {
                             Thread.currentThread().setContextClassLoader(contextClassLoader);
                         }
-                        List<GitHubRepository> accumulatedForCache = new ArrayList<>();
                         try {
-                            PaginationUtils.fetchGHRepositoriesPaginated(
-                                    gitHubRestClient,
-                                    scoreConfig,
-                                    language,
-                                    createdAfter,
-                                    pageItems -> {
-                                        if (!cancelled.get()) {
-                                            accumulatedForCache.addAll(pageItems);
-                                            subscriber.onNext(pageItems);
-                                        }
-                                    }, cancelled::get
-                            );
+                            String langKey = language.toLowerCase();
+                            String dateKey = createdAfter.toString();
+
+                            if (simpleCacheManagerProxy.containsKey(langKey, dateKey)) {
+                                log.info("Cache HIT for reactive page stream in Quarkus (language=" + language + ", createdAfter=" + createdAfter + ")");
+                                List<GitHubRepository> cachedList = simpleCacheManagerProxy.get(langKey, dateKey);
+                                if (cachedList != null && !cachedList.isEmpty() && !cancelled.get()) {
+                                    subscriber.onNext(cachedList);
+                                }
+                            } else {
+                                log.info("Cache MISS for reactive page stream in Quarkus (language=" + language + ", createdAfter=" + createdAfter + ")");
+                                List<GitHubRepository> accumulatedForCache = new ArrayList<>();
+                                PaginationUtils.fetchGHRepositoriesPaginated(
+                                        gitHubRestClient,
+                                        scoreConfig,
+                                        language,
+                                        createdAfter,
+                                        pageItems -> {
+                                            if (!cancelled.get()) {
+                                                accumulatedForCache.addAll(pageItems);
+                                                subscriber.onNext(pageItems);
+                                            }
+                                        }, cancelled::get
+                                );
+                                if (!accumulatedForCache.isEmpty()) {
+                                    simpleCacheManagerProxy.put(accumulatedForCache, langKey, dateKey);
+                                    log.info("Populated cache for reactive stream in Quarkus (language=" + language + ", createdAfter=" + createdAfter + ") with " + accumulatedForCache.size() + " items");
+                                }
+                            }
                         } catch (Throwable t) {
                             log.warn("Error fetching GitHub repositories reactively in Quarkus: " + t.getMessage() + ". Completing stream with items fetched so far.");
                         } finally {
-                            simpleCacheManagerProxy.put(accumulatedForCache, language.toLowerCase(), createdAfter.toString());
-                            log.info("Populated cache for reactive stream in Quarkus (language=" + language + ", createdAfter=" + createdAfter + ") with " + accumulatedForCache.size() + " items");
                             if (!cancelled.get()) {
                                 subscriber.onComplete();
                             }
@@ -172,12 +129,10 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
                 }
             });
         };
-
     }
 
     public List<GitHubRepository> fetchGitHubRepositoriesFallback(String language, LocalDate createdAfter) {
         log.warn("Fallback triggered for fetchGitHubRepositories in Quarkus for language: " + language);
         return Collections.emptyList();
     }
-
 }
