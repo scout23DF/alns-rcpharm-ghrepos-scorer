@@ -3,21 +3,16 @@ package com.alns.rcpharm.ghreposscorer.quarkus.adapter.out.github.utils;
 import io.quarkus.cache.Cache;
 import io.quarkus.cache.CacheManager;
 import io.quarkus.cache.CaffeineCache;
+import io.quarkus.cache.redis.runtime.RedisCache;
 
 import java.util.Optional;
 
 public enum CacheProviderTypeEnum {
 
-    CAFFEINE(CaffeineCache.class),
-    REDIS(Void.class),
-    GENERIC(Cache.class),
-    UNKNOWN(Void.class);
-
-    private Class<?> cacheImplClazz;
-
-    CacheProviderTypeEnum(Class<?> cacheImplClazz) {
-        this.cacheImplClazz = cacheImplClazz;
-    }
+    CAFFEINE,
+    REDIS,
+    GENERIC,
+    UNKNOWN;
 
     public static CacheProviderTypeEnum fromCacheManager(CacheManager cacheManager) {
         if (cacheManager == null) {
@@ -29,14 +24,25 @@ public enum CacheProviderTypeEnum {
                 .orElse(null);
 
         if (cacheGitRepos != null) {
+            if (cacheGitRepos instanceof CaffeineCache) {
+                return CAFFEINE;
+            }
+            if (cacheGitRepos instanceof RedisCache) {
+                return REDIS;
+            }
             try {
-                CaffeineCache caffeineCache = cacheGitRepos.as(CaffeineCache.class);
-                if (caffeineCache != null) {
+                if (cacheGitRepos.as(CaffeineCache.class) != null) {
                     return CAFFEINE;
                 }
             } catch (Exception ignored) {
             }
-            return REDIS;
+            try {
+                if (cacheGitRepos.as(RedisCache.class) != null) {
+                    return REDIS;
+                }
+            } catch (Exception ignored) {
+            }
+            return GENERIC;
         }
 
         return UNKNOWN;

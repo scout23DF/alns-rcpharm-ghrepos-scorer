@@ -4,6 +4,7 @@ import io.quarkus.cache.Cache;
 import io.quarkus.cache.CacheManager;
 import io.quarkus.cache.CaffeineCache;
 import io.quarkus.cache.CompositeCacheKey;
+import io.quarkus.cache.redis.runtime.RedisCache;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
@@ -21,9 +22,10 @@ public class SimpleCacheManagerProxy {
 
     private Cache genericCache;
     private CaffeineCache caffeineCache;
+    private RedisCache redisCache;
     private CacheProviderTypeEnum cacheProviderType = CacheProviderTypeEnum.UNKNOWN;
 
-    private void initialize() {
+    private synchronized void initialize() {
         if (genericCache != null) {
             return;
         }
@@ -32,12 +34,23 @@ public class SimpleCacheManagerProxy {
                 .orElse(null);
 
         if (genericCache != null) {
-            this.cacheProviderType = CacheProviderTypeEnum.fromCacheManager(cacheManager);
-            if (this.cacheProviderType == CacheProviderTypeEnum.CAFFEINE) {
+            if (genericCache instanceof CaffeineCache cc) {
+                this.caffeineCache = cc;
+                this.cacheProviderType = CacheProviderTypeEnum.CAFFEINE;
+            } else if (genericCache instanceof RedisCache rc) {
+                this.redisCache = rc;
+                this.cacheProviderType = CacheProviderTypeEnum.REDIS;
+            } else {
                 try {
-                    caffeineCache = genericCache.as(CaffeineCache.class);
-                } catch (Exception e) {
-                    this.cacheProviderType = CacheProviderTypeEnum.REDIS;
+                    this.caffeineCache = genericCache.as(CaffeineCache.class);
+                    this.cacheProviderType = CacheProviderTypeEnum.CAFFEINE;
+                } catch (Exception e1) {
+                    try {
+                        this.redisCache = genericCache.as(RedisCache.class);
+                        this.cacheProviderType = CacheProviderTypeEnum.REDIS;
+                    } catch (Exception e2) {
+                        this.cacheProviderType = CacheProviderTypeEnum.GENERIC;
+                    }
                 }
             }
         }
@@ -45,9 +58,12 @@ public class SimpleCacheManagerProxy {
 
     public boolean containsKey(String... keyAttribsArray) {
         initialize();
-        if (genericCache == null) return false;
+        if (genericCache == null) {
+            return false;
+        }
 
         CompositeCacheKey key = new CompositeCacheKey(keyAttribsArray);
+
         if (caffeineCache != null) {
             return caffeineCache.getIfPresent(key) != null;
         }
@@ -56,6 +72,7 @@ public class SimpleCacheManagerProxy {
             Object result = genericCache.get(key, k -> null).await().indefinitely();
             return result != null;
         } catch (Exception e) {
+            log.debugf("Cache miss or error checking key %s: %s", key, e.getMessage());
             return false;
         }
     }
@@ -63,9 +80,12 @@ public class SimpleCacheManagerProxy {
     @SuppressWarnings("unchecked")
     public <TObjResult> TObjResult get(String... keyAttribsArray) {
         initialize();
-        if (genericCache == null) return null;
+        if (genericCache == null) {
+            return null;
+        }
 
         CompositeCacheKey key = new CompositeCacheKey(keyAttribsArray);
+
         if (caffeineCache != null) {
             try {
                 CompletableFuture<Object> future = caffeineCache.getIfPresent(key);
@@ -86,9 +106,12 @@ public class SimpleCacheManagerProxy {
 
     public void put(Object valueToStore, String... keyAttribsArray) {
         initialize();
-        if (genericCache == null || valueToStore == null) return;
+        if (genericCache == null || valueToStore == null) {
+            return;
+        }
 
         CompositeCacheKey key = new CompositeCacheKey(keyAttribsArray);
+
         if (caffeineCache != null) {
             caffeineCache.put(key, CompletableFuture.completedFuture(valueToStore));
             return;
