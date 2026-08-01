@@ -2,6 +2,7 @@ package com.alns.rcpharm.ghreposscorer.springboot.config;
 
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.jsontype.impl.LaissezFaireSubTypeValidator;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -24,6 +25,7 @@ public class RedisCacheConfig {
 
     @Bean
     public RedisCacheManager cacheManager(RedisConnectionFactory connectionFactory) {
+
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.registerModule(new JavaTimeModule());
         objectMapper.activateDefaultTyping(
@@ -31,17 +33,34 @@ public class RedisCacheConfig {
                 ObjectMapper.DefaultTyping.NON_FINAL,
                 JsonTypeInfo.As.PROPERTY
         );
+        objectMapper.registerModule(new JavaTimeModule()); // Registra suporte a Instant, LocalDateTime, etc.
+        objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS); // Formata como ISO-8601 String
 
         GenericJackson2JsonRedisSerializer jsonSerializer = new GenericJackson2JsonRedisSerializer(objectMapper);
+        // Jackson2JsonRedisSerializer<Object> jsonSerializer = new Jackson2JsonRedisSerializer<>(Object.class);
 
         RedisCacheConfiguration config = RedisCacheConfiguration.defaultCacheConfig()
                 .entryTtl(Duration.ofMinutes(10))
                 .disableCachingNullValues()
                 .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
-                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(jsonSerializer));
+                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(jsonSerializer))
+                .computePrefixWith(cacheName -> cacheName + ":") // Usa apenas ":" em vez de "::"
+                ;
 
         return RedisCacheManager.builder(connectionFactory)
                 .cacheDefaults(config)
                 .build();
     }
+
+    /*
+    @Bean
+    public RedisCacheConfiguration cacheConfiguration() {
+        return RedisCacheConfiguration.defaultCacheConfig()
+                .computePrefixWith(cacheName -> cacheName + ":") // Usa apenas ":" em vez de "::"
+                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(
+                        new Jackson2JsonRedisSerializer<>(ObjectMapperFactory.createAgnosticObjectMapper(), Object.class)
+                ));
+    }
+    */
+
 }

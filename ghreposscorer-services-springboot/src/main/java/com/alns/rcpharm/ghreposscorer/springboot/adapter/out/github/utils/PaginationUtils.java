@@ -108,12 +108,9 @@ public class PaginationUtils {
         boolean handlePagination = scoreConfig != null ? Boolean.TRUE.equals(scoreConfig.shouldHandleGHApiPagination()) : true;
         int maxPages = scoreConfig != null && scoreConfig.maxPagesToFetch() != null ? scoreConfig.maxPagesToFetch() : 5;
         Long delay = scoreConfig != null ? scoreConfig.delayBetweenGHApiRequestsMillis() : null;
-        int pageCount = 1;
+        int pageCount = 0;
 
         String linkHeader = responseFirstPage.getHeaders().getFirst("link");
-        // if (linkHeader == null) {
-        //     linkHeader = responseFirstPage.getHeaders().getFirst("Link");
-        // }
         Optional<URI> nextUriOpt = GitHubLinkHeaderParser.extractNextPageUri(linkHeader);
 
         while (handlePagination && nextUriOpt.isPresent() && pageCount < maxPages && !isCancelled.getAsBoolean()) {
@@ -148,9 +145,6 @@ public class PaginationUtils {
             handleResponseMapping(pageConsumer, isCancelled, nextResponse);
 
             linkHeader = nextResponse.getHeaders().getFirst("link");
-            // if (linkHeader == null) {
-            //     linkHeader = nextResponse.getHeaders().getFirst("Link");
-            // }
             nextUriOpt = GitHubLinkHeaderParser.extractNextPageUri(linkHeader);
 
         } // while

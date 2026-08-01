@@ -40,7 +40,7 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
     }
 
     @Override
-    @Cacheable(value = "github-repositories", key = "#language.toLowerCase() + '-' + #createdAfter")
+    @Cacheable(value = "github-repositories", key = "#language.toLowerCase() + '::' + #createdAfter", unless = "#result.isEmpty()")
     @CircuitBreaker(name = "githubApi", fallbackMethod = "fetchGitHubRepositoriesFallback")
     @RateLimiter(name = "githubApi")
     public List<GitHubRepository> fetchGitHubRepositories(String language, LocalDate createdAfter) {
@@ -70,7 +70,7 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
     @SuppressWarnings("unchecked")
     public Flow.Publisher<List<GitHubRepository>> fetchGitHubRepositoriesPageStream(String language, LocalDate createdAfter) {
         ScoreConfig scoreConfig = scoreConfigStoragePort != null ? scoreConfigStoragePort.loadConfig() : null;
-        String cacheKey = language.toLowerCase() + "-" + createdAfter;
+        String cacheKey = language.toLowerCase() + "::" + createdAfter;
         Cache cache = cacheManager != null ? cacheManager.getCache("github-repositories") : null;
 
         List<GitHubRepository> cachedList = null;

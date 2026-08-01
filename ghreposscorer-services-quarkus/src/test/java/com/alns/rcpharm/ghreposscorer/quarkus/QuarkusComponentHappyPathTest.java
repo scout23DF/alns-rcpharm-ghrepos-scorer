@@ -92,8 +92,8 @@ class QuarkusComponentHappyPathTest {
 
         jakarta.ws.rs.client.Client client = jakarta.ws.rs.client.ClientBuilder.newClient();
         jakarta.ws.rs.client.WebTarget target = client.target(io.restassured.RestAssured.baseURI + ":" + io.restassured.RestAssured.port + "/api/v1/repositories/popular/stream")
-                .queryParam("language", "Java")
-                .queryParam("created_after", "2015-01-01")
+                .queryParam("language", "KotlinStream")
+                .queryParam("created_after", "2018-01-01")
                 .queryParam("limit", 5);
 
         java.util.List<String> receivedEvents = new java.util.concurrent.CopyOnWriteArrayList<>();

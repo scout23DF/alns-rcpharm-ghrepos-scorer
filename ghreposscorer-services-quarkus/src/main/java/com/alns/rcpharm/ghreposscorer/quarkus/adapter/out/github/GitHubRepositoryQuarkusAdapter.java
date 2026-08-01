@@ -39,7 +39,7 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
     SimpleCacheManagerProxy simpleCacheManagerProxy;
 
     @Override
-    @CacheResult(cacheName = "github-repositories")
+    @CacheResult(cacheName = "github-repositories", keyGenerator = SimpleCacheManagerProxy.class)
     @CircuitBreaker(requestVolumeThreshold = 10, failureRatio = 0.5, delay = 10000, delayUnit = ChronoUnit.MILLIS)
     @RateLimit(value = 10, window = 1, windowUnit = ChronoUnit.MINUTES)
     @Fallback(fallbackMethod = "fetchGitHubRepositoriesFallback")
@@ -87,7 +87,7 @@ public class GitHubRepositoryQuarkusAdapter implements GitHubRepositoryPort {
                             String langKey = language.toLowerCase();
                             String dateKey = createdAfter.toString();
 
-                            if (simpleCacheManagerProxy.containsKey(langKey, dateKey)) {
+                            if (simpleCacheManagerProxy.containsValidListOf(langKey, dateKey)) {
                                 log.info("Cache HIT for reactive page stream in Quarkus (language=" + language + ", createdAfter=" + createdAfter + ")");
                                 List<GitHubRepository> cachedList = simpleCacheManagerProxy.get(langKey, dateKey);
                                 if (cachedList != null && !cachedList.isEmpty() && !cancelled.get()) {
