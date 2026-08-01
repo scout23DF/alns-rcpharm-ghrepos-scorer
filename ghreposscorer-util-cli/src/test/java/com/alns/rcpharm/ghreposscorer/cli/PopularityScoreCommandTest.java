@@ -17,10 +17,19 @@ class PopularityScoreCommandTest {
     PopularityScoreCommand popularityScoreCommand;
 
     @Test
-    @DisplayName("CLI Test: Should execute PopularityScoreCommand successfully with arguments")
-    void testPopularityScoreCommandExecution() {
+    @DisplayName("CLI Test: Should execute PopularityScoreCommand synchronously with arguments")
+    void testPopularityScoreCommandSynchronousExecution() {
         CommandLine commandLine = new CommandLine(popularityScoreCommand);
         int exitCode = commandLine.execute("-l", "Kotlin", "-n", "3");
+
+        assertThat(exitCode).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("CLI Test: Should execute PopularityScoreCommand reactively with -s / --stream flag")
+    void testPopularityScoreCommandReactiveStreamExecution() {
+        CommandLine commandLine = new CommandLine(popularityScoreCommand);
+        int exitCode = commandLine.execute("-l", "Kotlin", "-n", "3", "-s");
 
         assertThat(exitCode).isEqualTo(0);
     }

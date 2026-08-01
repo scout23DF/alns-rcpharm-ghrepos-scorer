@@ -1,20 +1,25 @@
 package com.alns.rcpharm.ghreposscorer.cli;
 
 import com.alns.rcpharm.ghreposscorer.domain.model.PopularityScore;
+import com.alns.rcpharm.ghreposscorer.domain.port.in.ListScoredGHReposRankingStreamUseCase;
 import com.alns.rcpharm.ghreposscorer.domain.port.in.ListScoredGHReposRankingUseCase;
+import io.quarkus.picocli.runtime.annotations.TopCommand;
 import jakarta.inject.Inject;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
-
-import io.quarkus.picocli.runtime.annotations.TopCommand;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Flow;
+import java.util.concurrent.TimeUnit;
 
 /**
  * PicoCLI command for fetching and displaying GitHub repository popularity scores.
+ * Supports both synchronous and reactive stream modes.
  */
 @TopCommand
 @Command(
@@ -28,6 +33,9 @@ public class PopularityScoreCommand implements Callable<Integer> {
     @Inject
     ListScoredGHReposRankingUseCase listScoredGHReposRankingUseCase;
 
+    @Inject
+    ListScoredGHReposRankingStreamUseCase listScoredGHReposRankingStreamUseCase;
+
     @Option(names = {"-l", "--language"}, description = "Programming language to search (e.g. Java, Kotlin, Python)", defaultValue = "Java")
     String language;
 
@@ -37,13 +45,21 @@ public class PopularityScoreCommand implements Callable<Integer> {
     @Option(names = {"-n", "--limit"}, description = "Maximum number of repositories to display", defaultValue = "10")
     int limit;
 
+    @Option(names = {"-s", "--stream"}, description = "Fetch repositories reactively via reactive stream (Flow.Publisher / SSE)")
+    boolean reactiveStream;
+
     @Override
     public Integer call() {
         LocalDate createdAfter = LocalDate.parse(createdAfterDate, DateTimeFormatter.ISO_LOCAL_DATE);
-        System.out.printf("Fetching popular repositories for language '%s' created after %s (Limit: %d)...%n%n",
-                language, createdAfter, limit);
+        System.out.printf("Fetching popular repositories for language '%s' created after %s (Limit: %d, Mode: %s)...%n%n",
+                language, createdAfter, limit, reactiveStream ? "REACTIVE STREAM" : "SYNCHRONOUS");
 
-        List<PopularityScore> scores = listScoredGHReposRankingUseCase.getPopularRepositories(language, createdAfter, limit);
+        List<PopularityScore> scores;
+        if (reactiveStream) {
+            scores = fetchScoresFromStream(language, createdAfter, limit);
+        } else {
+            scores = listScoredGHReposRankingUseCase.getPopularRepositories(language, createdAfter, limit);
+        }
 
         if (scores.isEmpty()) {
             System.out.println("No repositories found matching the given criteria.");
@@ -70,5 +86,44 @@ public class PopularityScoreCommand implements Callable<Integer> {
         System.out.println("==========================================================================================================");
 
         return 0;
+    }
+
+    private List<PopularityScore> fetchScoresFromStream(String language, LocalDate createdAfter, int limit) {
+        List<PopularityScore> accumulatedScores = new ArrayList<>();
+        CountDownLatch latch = new CountDownLatch(1);
+
+        Flow.Publisher<List<PopularityScore>> publisher =
+                listScoredGHReposRankingStreamUseCase.getPopularRepositoriesStream(language, createdAfter, limit);
+
+        publisher.subscribe(new Flow.Subscriber<>() {
+            @Override
+            public void onSubscribe(Flow.Subscription subscription) {
+                subscription.request(Long.MAX_VALUE);
+            }
+
+            @Override
+            public void onNext(List<PopularityScore> items) {
+                accumulatedScores.addAll(items);
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+                System.err.println("Error in reactive stream: " + throwable.getMessage());
+                latch.countDown();
+            }
+
+            @Override
+            public void onComplete() {
+                latch.countDown();
+            }
+        });
+
+        try {
+            latch.await(30, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        return accumulatedScores;
     }
 }
