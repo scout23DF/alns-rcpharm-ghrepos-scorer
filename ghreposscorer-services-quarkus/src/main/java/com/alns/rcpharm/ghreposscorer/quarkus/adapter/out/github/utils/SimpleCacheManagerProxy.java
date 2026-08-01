@@ -1,5 +1,7 @@
 package com.alns.rcpharm.ghreposscorer.quarkus.adapter.out.github.utils;
 
+import com.alns.rcpharm.ghreposscorer.domain.model.GitHubRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.quarkus.cache.Cache;
 import io.quarkus.cache.CacheKeyGenerator;
 import io.quarkus.cache.CacheName;
@@ -22,6 +24,9 @@ public class SimpleCacheManagerProxy implements CacheKeyGenerator {
     @Inject
     @CacheName("github-repositories")
     private Cache gitHubReposCache;
+
+    @Inject
+    ObjectMapper objectMapper;
 
     private CaffeineCache caffeineCache;
     private RedisCache redisCache;
@@ -67,20 +72,31 @@ public class SimpleCacheManagerProxy implements CacheKeyGenerator {
         initialize();
         String strKey = generateSimpleKey(keyAttribsArray[0], keyAttribsArray[1]);
 
+        Object rawValue = null;
         switch (cacheProviderType) {
             case CAFFEINE:
                 try {
-                return (TObjResult) caffeineCache.getIfPresent(strKey).get();
+                    rawValue = caffeineCache.getIfPresent(strKey).get();
                 } catch (Exception e) {
                     log.warn("Error retrieving value from Caffeine cache for key: " + strKey + ". Exception: " + e.getMessage());
                     return null;
                 }
+                break;
             case REDIS:
-                return (TObjResult) redisCache.get(strKey, k -> null).await().indefinitely();
+                rawValue = redisCache.get(strKey, k -> null).await().indefinitely();
+                break;
             default:
                 return null;
         }
 
+        if (rawValue instanceof List<?> rawList) {
+            List<GitHubRepository> convertedList = rawList.stream()
+                    .map(item -> item instanceof GitHubRepository gh ? gh : objectMapper.convertValue(item, GitHubRepository.class))
+                    .toList();
+            return (TObjResult) convertedList;
+        }
+
+        return (TObjResult) rawValue;
     }
 
     public void put(Object valueToStore, String... keyAttribsArray) {
