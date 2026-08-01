@@ -42,7 +42,7 @@ public class GitHubScoreController {
         this.cacheManager = cacheManager;
     }
 
-    @GetMapping({"/repositories/popular", "/github-repositories/popular"})
+    @GetMapping({"/repositories/popular"})
     @Operation(summary = "Get popular GitHub repositories scored and sorted")
     public ResponseEntity<List<PopularityScore>> getPopularRepositories(
             @RequestParam("language") String language,

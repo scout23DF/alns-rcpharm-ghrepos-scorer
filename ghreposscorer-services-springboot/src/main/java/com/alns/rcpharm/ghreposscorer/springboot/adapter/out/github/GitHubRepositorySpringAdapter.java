@@ -125,11 +125,17 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
                         if (n <= 0 || cancelled.get() || !started.compareAndSet(false, true)) {
                             return;
                         }
+
+                        /*
                         int pageSize = 100;
                         for (int i = 0; i < finalCachedList.size() && !cancelled.get(); i += pageSize) {
                             List<GitHubRepository> pageChunk = finalCachedList.subList(i, Math.min(i + pageSize, finalCachedList.size()));
                             subscriber.onNext(pageChunk);
                         }
+                        */
+
+                        subscriber.onNext(finalCachedList);
+
                         if (!cancelled.get()) {
                             subscriber.onComplete();
                         }
