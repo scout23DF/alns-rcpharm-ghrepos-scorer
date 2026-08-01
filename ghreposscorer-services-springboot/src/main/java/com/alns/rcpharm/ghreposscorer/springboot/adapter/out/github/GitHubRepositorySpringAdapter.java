@@ -5,6 +5,7 @@ import com.alns.rcpharm.ghreposscorer.domain.model.ScoreConfig;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.GitHubRepositoryPort;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.ScoreConfigStoragePort;
 import com.alns.rcpharm.ghreposscorer.springboot.adapter.out.github.utils.PaginationUtils;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import org.slf4j.Logger;
@@ -12,7 +13,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
@@ -30,20 +30,34 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
     private final GitHubFeignClient gitHubFeignClient;
     private final ScoreConfigStoragePort scoreConfigStoragePort;
     private final CacheManager cacheManager;
+    private final ObjectMapper objectMapper;
 
     public GitHubRepositorySpringAdapter(GitHubFeignClient gitHubFeignClient,
                                          ScoreConfigStoragePort scoreConfigStoragePort,
-                                         @Autowired(required = false) CacheManager cacheManager) {
+                                         @Autowired(required = false) CacheManager cacheManager,
+                                         @Autowired(required = false) ObjectMapper objectMapper) {
         this.gitHubFeignClient = gitHubFeignClient;
         this.scoreConfigStoragePort = scoreConfigStoragePort;
         this.cacheManager = cacheManager;
+        this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
     }
 
     @Override
-    @Cacheable(value = "github-repositories", key = "#language.toLowerCase() + '::' + #createdAfter", unless = "#result.isEmpty()")
     @CircuitBreaker(name = "githubApi", fallbackMethod = "fetchGitHubRepositoriesFallback")
     @RateLimiter(name = "githubApi")
     public List<GitHubRepository> fetchGitHubRepositories(String language, LocalDate createdAfter) {
+        String cacheKey = language.toLowerCase() + "::" + createdAfter;
+        Cache cache = cacheManager != null ? cacheManager.getCache("github-repositories") : null;
+        if (cache != null) {
+            Cache.ValueWrapper wrapper = cache.get(cacheKey);
+            if (wrapper != null && wrapper.get() instanceof List<?> rawList && !rawList.isEmpty()) {
+                log.info("Cache HIT for fetchGitHubRepositories in Spring Boot (language={}, createdAfter={})", language, createdAfter);
+                return rawList.stream()
+                        .map(item -> item instanceof GitHubRepository gh ? gh : objectMapper.convertValue(item, GitHubRepository.class))
+                        .toList();
+            }
+        }
+
         List<GitHubRepository> accumulated = new ArrayList<>();
         ScoreConfig scoreConfig = scoreConfigStoragePort != null ? scoreConfigStoragePort.loadConfig() : null;
         try {
@@ -55,6 +69,9 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
                     accumulated::addAll,
                     () -> false
             );
+            if (cache != null && !accumulated.isEmpty()) {
+                cache.put(cacheKey, accumulated);
+            }
         } catch (Exception e) {
             log.warn("GitHub API request for language '{}' returned error: {}. Returning accumulated items.", language, e.getMessage());
         }
@@ -67,7 +84,6 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public Flow.Publisher<List<GitHubRepository>> fetchGitHubRepositoriesPageStream(String language, LocalDate createdAfter) {
         ScoreConfig scoreConfig = scoreConfigStoragePort != null ? scoreConfigStoragePort.loadConfig() : null;
         String cacheKey = language.toLowerCase() + "::" + createdAfter;
@@ -76,8 +92,10 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
         List<GitHubRepository> cachedList = null;
         if (cache != null) {
             Cache.ValueWrapper valueWrapper = cache.get(cacheKey);
-            if (valueWrapper != null && valueWrapper.get() instanceof List) {
-                cachedList = (List<GitHubRepository>) valueWrapper.get();
+            if (valueWrapper != null && valueWrapper.get() instanceof List<?> rawList) {
+                cachedList = rawList.stream()
+                        .map(item -> item instanceof GitHubRepository gh ? gh : objectMapper.convertValue(item, GitHubRepository.class))
+                        .toList();
             }
         }
 
