@@ -5,7 +5,10 @@ import com.alns.rcpharm.ghreposscorer.domain.model.ScoreConfig;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.GitHubRepositoryPort;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.ScoreConfigStoragePort;
 import com.alns.rcpharm.ghreposscorer.springboot.adapter.out.github.utils.PaginationUtils;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import org.slf4j.Logger;
@@ -30,16 +33,25 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
     private final GitHubFeignClient gitHubFeignClient;
     private final ScoreConfigStoragePort scoreConfigStoragePort;
     private final CacheManager cacheManager;
-    private final ObjectMapper objectMapper;
+    private final ObjectMapper customJacksonObjectMapper;
 
     public GitHubRepositorySpringAdapter(GitHubFeignClient gitHubFeignClient,
                                          ScoreConfigStoragePort scoreConfigStoragePort,
                                          @Autowired(required = false) CacheManager cacheManager,
-                                         @Autowired(required = false) ObjectMapper objectMapper) {
+                                         @Autowired(required = false) ObjectMapper expectedObjectMapper) {
         this.gitHubFeignClient = gitHubFeignClient;
         this.scoreConfigStoragePort = scoreConfigStoragePort;
         this.cacheManager = cacheManager;
-        this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
+
+        if (expectedObjectMapper != null) {
+            this.customJacksonObjectMapper = expectedObjectMapper;
+        } else {
+            ObjectMapper objectMapperReaderFromCache = new ObjectMapper();
+            objectMapperReaderFromCache.registerModule(new JavaTimeModule());
+            objectMapperReaderFromCache.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+            objectMapperReaderFromCache.disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+            this.customJacksonObjectMapper       = objectMapperReaderFromCache;
+        }
     }
 
     @Override
@@ -53,7 +65,7 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
             if (wrapper != null && wrapper.get() instanceof List<?> rawList && !rawList.isEmpty()) {
                 log.info("Cache HIT for fetchGitHubRepositories in Spring Boot (language={}, createdAfter={})", language, createdAfter);
                 return rawList.stream()
-                        .map(item -> item instanceof GitHubRepository gh ? gh : objectMapper.convertValue(item, GitHubRepository.class))
+                        .map(item -> item instanceof GitHubRepository gh ? gh : customJacksonObjectMapper.convertValue(item, GitHubRepository.class))
                         .toList();
             }
         }
@@ -94,7 +106,7 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
             Cache.ValueWrapper valueWrapper = cache.get(cacheKey);
             if (valueWrapper != null && valueWrapper.get() instanceof List<?> rawList) {
                 cachedList = rawList.stream()
-                        .map(item -> item instanceof GitHubRepository gh ? gh : objectMapper.convertValue(item, GitHubRepository.class))
+                        .map(item -> item instanceof GitHubRepository gh ? gh : customJacksonObjectMapper.convertValue(item, GitHubRepository.class))
                         .toList();
             }
         }
