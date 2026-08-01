@@ -32,7 +32,6 @@ public class PaginationUtils {
         String token = System.getenv("GITHUB_TOKEN");
         String authHeader = (token != null && !token.isBlank()) ? "Bearer " + token : null;
 
-        boolean handlePagination = scoreConfig != null ? Boolean.TRUE.equals(scoreConfig.shouldHandleGHApiPagination()) : true;
         int maxPages = scoreConfig != null && scoreConfig.maxPagesToFetch() != null ? scoreConfig.maxPagesToFetch() : 5;
         Long delay = scoreConfig != null ? scoreConfig.delayBetweenGHApiRequestsMillis() : null;
 
