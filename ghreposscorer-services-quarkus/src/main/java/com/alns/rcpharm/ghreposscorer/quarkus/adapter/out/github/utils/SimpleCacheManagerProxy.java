@@ -1,6 +1,7 @@
 package com.alns.rcpharm.ghreposscorer.quarkus.adapter.out.github.utils;
 
 import com.alns.rcpharm.ghreposscorer.domain.model.GitHubRepository;
+import com.alns.rcpharm.ghreposscorer.domain.utils.AppCacheMgmtUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.quarkus.cache.Cache;
 import io.quarkus.cache.CacheKeyGenerator;
@@ -13,7 +14,6 @@ import org.jboss.logging.Logger;
 
 import java.lang.reflect.Method;
 import java.util.List;
-import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 
 @ApplicationScoped
@@ -53,7 +53,7 @@ public class SimpleCacheManagerProxy implements CacheKeyGenerator {
 
     public boolean containsKey(String... keyAttribsArray) {
         initialize();
-        String strKey = generateSimpleKey(keyAttribsArray[0], keyAttribsArray[1]);
+        String strKey = AppCacheMgmtUtils.generateSimpleCacheKey(keyAttribsArray[0], keyAttribsArray[1]);
 
         switch (cacheProviderType) {
             case CAFFEINE:
@@ -70,7 +70,7 @@ public class SimpleCacheManagerProxy implements CacheKeyGenerator {
     @SuppressWarnings("unchecked")
     public <TObjResult> TObjResult get(String... keyAttribsArray) {
         initialize();
-        String strKey = generateSimpleKey(keyAttribsArray[0], keyAttribsArray[1]);
+        String strKey = AppCacheMgmtUtils.generateSimpleCacheKey(keyAttribsArray[0], keyAttribsArray[1]);
 
         Object rawValue = null;
         switch (cacheProviderType) {
@@ -101,7 +101,7 @@ public class SimpleCacheManagerProxy implements CacheKeyGenerator {
 
     public void put(Object valueToStore, String... keyAttribsArray) {
         initialize();
-        String strKey = generateSimpleKey(keyAttribsArray[0], keyAttribsArray[1]);
+        String strKey = AppCacheMgmtUtils.generateSimpleCacheKey(keyAttribsArray[0], keyAttribsArray[1]);
 
         switch (cacheProviderType) {
             case CAFFEINE:
@@ -138,7 +138,7 @@ public class SimpleCacheManagerProxy implements CacheKeyGenerator {
                 }
             }
         } catch (Exception ex) {
-            this.gitHubReposCache.invalidate(generateSimpleKey(keyAttribsArray[0], keyAttribsArray[1]));
+            this.gitHubReposCache.invalidate(AppCacheMgmtUtils.generateSimpleCacheKey(keyAttribsArray[0], keyAttribsArray[1]));
             log.warn("Error checking cache Value for Key: " + keyAttribsArray + ". Removing entry from the Cache. Exception: " + ex.getMessage());
             bolResult = false;
         }
@@ -149,10 +149,7 @@ public class SimpleCacheManagerProxy implements CacheKeyGenerator {
 
     @Override
     public Object generate(Method method, Object... methodParams) {
-        return generateSimpleKey(String.valueOf(methodParams[0]), String.valueOf(methodParams[1]));
+        return AppCacheMgmtUtils.generateSimpleCacheKey(String.valueOf(methodParams[0]), String.valueOf(methodParams[1]));
     }
 
-    public String generateSimpleKey(String language, String createdAfter) {
-        return language.toLowerCase(Locale.ROOT) + "::" + createdAfter;
-    }
 }

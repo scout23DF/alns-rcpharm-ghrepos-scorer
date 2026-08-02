@@ -1,4 +1,4 @@
-package com.alns.rcpharm.ghreposscorer.domain.util;
+package com.alns.rcpharm.ghreposscorer.domain.utils;
 
 import java.net.URI;
 import java.util.Optional;

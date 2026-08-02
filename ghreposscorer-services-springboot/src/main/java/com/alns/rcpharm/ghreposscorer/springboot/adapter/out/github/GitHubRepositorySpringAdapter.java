@@ -4,6 +4,7 @@ import com.alns.rcpharm.ghreposscorer.domain.model.GitHubRepository;
 import com.alns.rcpharm.ghreposscorer.domain.model.ScoreConfig;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.GitHubRepositoryPort;
 import com.alns.rcpharm.ghreposscorer.domain.port.out.ScoreConfigStoragePort;
+import com.alns.rcpharm.ghreposscorer.domain.utils.AppCacheMgmtUtils;
 import com.alns.rcpharm.ghreposscorer.springboot.adapter.out.github.utils.PaginationUtils;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -58,7 +59,7 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
     @CircuitBreaker(name = "githubApi", fallbackMethod = "fetchGitHubRepositoriesFallback")
     @RateLimiter(name = "githubApi")
     public List<GitHubRepository> fetchGitHubRepositories(String language, LocalDate createdAfter) {
-        String cacheKey = language.toLowerCase() + "::" + createdAfter;
+        String cacheKey = AppCacheMgmtUtils.generateSimpleCacheKey(language.toLowerCase(), createdAfter.toString());
         Cache cache = cacheManager != null ? cacheManager.getCache("github-repositories") : null;
         if (cache != null) {
             Cache.ValueWrapper wrapper = cache.get(cacheKey);
@@ -98,7 +99,7 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
     @Override
     public Flow.Publisher<List<GitHubRepository>> fetchGitHubRepositoriesPageStream(String language, LocalDate createdAfter) {
         ScoreConfig scoreConfig = scoreConfigStoragePort != null ? scoreConfigStoragePort.loadConfig() : null;
-        String cacheKey = language.toLowerCase() + "::" + createdAfter;
+        String cacheKey = AppCacheMgmtUtils.generateSimpleCacheKey(language.toLowerCase(), createdAfter.toString());
         Cache cache = cacheManager != null ? cacheManager.getCache("github-repositories") : null;
 
         List<GitHubRepository> cachedList = null;
@@ -125,14 +126,6 @@ public class GitHubRepositorySpringAdapter implements GitHubRepositoryPort {
                         if (n <= 0 || cancelled.get() || !started.compareAndSet(false, true)) {
                             return;
                         }
-
-                        /*
-                        int pageSize = 100;
-                        for (int i = 0; i < finalCachedList.size() && !cancelled.get(); i += pageSize) {
-                            List<GitHubRepository> pageChunk = finalCachedList.subList(i, Math.min(i + pageSize, finalCachedList.size()));
-                            subscriber.onNext(pageChunk);
-                        }
-                        */
 
                         subscriber.onNext(finalCachedList);
 

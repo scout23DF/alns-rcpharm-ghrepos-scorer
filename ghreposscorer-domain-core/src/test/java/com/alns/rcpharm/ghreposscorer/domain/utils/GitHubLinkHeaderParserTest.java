@@ -1,4 +1,4 @@
-package com.alns.rcpharm.ghreposscorer.domain.util;
+package com.alns.rcpharm.ghreposscorer.domain.utils;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

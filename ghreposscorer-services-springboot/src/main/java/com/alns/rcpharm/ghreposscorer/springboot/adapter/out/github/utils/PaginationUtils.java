@@ -2,7 +2,7 @@ package com.alns.rcpharm.ghreposscorer.springboot.adapter.out.github.utils;
 
 import com.alns.rcpharm.ghreposscorer.domain.model.GitHubRepository;
 import com.alns.rcpharm.ghreposscorer.domain.model.ScoreConfig;
-import com.alns.rcpharm.ghreposscorer.domain.util.GitHubLinkHeaderParser;
+import com.alns.rcpharm.ghreposscorer.domain.utils.GitHubLinkHeaderParser;
 import com.alns.rcpharm.ghreposscorer.springboot.adapter.out.github.GitHubFeignClient;
 import com.alns.rcpharm.ghreposscorer.springboot.adapter.out.github.dto.GitHubSearchResponseDto;
 import org.slf4j.Logger;
@@ -107,7 +107,7 @@ public class PaginationUtils {
         boolean handlePagination = scoreConfig != null ? Boolean.TRUE.equals(scoreConfig.shouldHandleGHApiPagination()) : true;
         int maxPages = scoreConfig != null && scoreConfig.maxPagesToFetch() != null ? scoreConfig.maxPagesToFetch() : 5;
         Long delay = scoreConfig != null ? scoreConfig.delayBetweenGHApiRequestsMillis() : null;
-        int pageCount = 0;
+        int pageCount = 1;
 
         String linkHeader = responseFirstPage.getHeaders().getFirst("link");
         Optional<URI> nextUriOpt = GitHubLinkHeaderParser.extractNextPageUri(linkHeader);
