@@ -1,10 +1,13 @@
 package com.alns.rcpharm.ghreposscorer.quarkus.adapter.out.github.utils;
 
 import com.alns.rcpharm.ghreposscorer.domain.model.ScoreConfig;
+import io.netty.handler.logging.LogLevel;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.function.Supplier;
 
 public class RetryAttemptsUtils {
@@ -12,78 +15,169 @@ public class RetryAttemptsUtils {
     private static final Logger log = Logger.getLogger(RetryAttemptsUtils.class);
     private static final long MAX_RETRY_DELAY_MS = 5000L;
 
-    public static Response fetchResponseWithRetry(ScoreConfig scoreConfig, Supplier<Response> requestSupplier) {
-        int maxRetries = scoreConfig != null && scoreConfig.maxRetriesAttempts() != null ? scoreConfig.maxRetriesAttempts() : 3;
-        long delayMs = (scoreConfig != null && scoreConfig.delayBetweenGHApiRequestsMillis() != null && scoreConfig.delayBetweenGHApiRequestsMillis() > 0)
-                ? scoreConfig.delayBetweenGHApiRequestsMillis() : 1000L;
-        Response response = null;
+    public static Response fetchResponseWithRetry(
+            ScoreConfig scoreConfig,
+            Supplier<Response> requestSupplier
+    ) {
 
-        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+        Response response = null;
+        RetryIterationHolderDTO retryIterationHolderDTO = new RetryIterationHolderDTO();
+
+        int maxRetries = (
+                (scoreConfig != null && scoreConfig.maxRetriesAttempts() != null && scoreConfig.maxRetriesAttempts() > 0)
+                        ? scoreConfig.maxRetriesAttempts()
+                        : 3
+        );
+        long delayMs = (
+                (scoreConfig != null && scoreConfig != null && scoreConfig.delayBetweenGHApiRequestsMillis() != null && scoreConfig.delayBetweenGHApiRequestsMillis() > 0)
+                        ? scoreConfig.delayBetweenGHApiRequestsMillis()
+                        : 1000L
+        );
+
+        for (int attemptsCount = 1; attemptsCount <= maxRetries; attemptsCount++) {
+
             try {
+                retryIterationHolderDTO.logLevel = LogLevel.INFO;
+                retryIterationHolderDTO.currentAttemptsCount = attemptsCount;
+
                 response = requestSupplier.get();
-                if (response != null) {
-                    int status = response.getStatus();
-                    if (status == 200) {
-                        return response;
-                    }
-                    if (status == 429 || status == 403 || status >= 500) {
-                        long calculatedDelay = parseRateLimitDelayMs(status, response, delayMs);
-                        log.warn(String.format("GitHub API call returned status %d. Attempt %d/%d failed. Retrying in %d ms...",
-                                status, attempt, maxRetries, calculatedDelay));
-                        if (attempt < maxRetries) {
-                            try {
-                                Thread.sleep(calculatedDelay);
-                            } catch (InterruptedException ie) {
-                                Thread.currentThread().interrupt();
-                                break;
-                            }
-                            delayMs *= 2;
-                            continue;
-                        }
-                    }
-                }
-                return response;
-            } catch (Exception e) {
-                long calculatedDelay = delayMs;
-                if (e instanceof WebApplicationException wae && wae.getResponse() != null) {
-                    Response errResp = wae.getResponse();
-                    calculatedDelay = parseRateLimitDelayMs(errResp.getStatus(), errResp, delayMs);
-                }
-                log.warn(String.format("GitHub API call failed (%s). Attempt %d/%d failed. Retrying in %d ms...",
-                        e.getMessage(), attempt, maxRetries, calculatedDelay));
-                if (attempt < maxRetries) {
-                    try {
-                        Thread.sleep(calculatedDelay);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
-                    delayMs *= 2;
-                } else {
-                    log.error("GitHub API request failed after max retries (" + maxRetries + "): " + e.getMessage());
-                }
+
+                retryIterationHolderDTO.lastResponseReturned = response;
+
+            } catch (Exception ex) {
+                retryIterationHolderDTO.lastResponseReturned = response;
+                retryIterationHolderDTO.occurredException = ex;
+            } // try
+
+            handleRetryAttemptDelay(retryIterationHolderDTO, maxRetries);
+
+            switch (retryIterationHolderDTO.logLevel) {
+                case WARN:
+                    log.warn(retryIterationHolderDTO.logMessage);
+                    break;
+                case ERROR:
+                    log.error(retryIterationHolderDTO.logMessage);
+                    break;
+                default:
+                    log.info(retryIterationHolderDTO.logMessage);
+                    break;
             }
-        }
+
+            if (retryIterationHolderDTO.mustBreakLoop) {
+                break;
+            }
+
+            if (retryIterationHolderDTO.mustContinueLoop) {
+                continue;
+            }
+
+        } // for
+
         return response;
     }
 
-    private static long parseRateLimitDelayMs(int statusCode, Response response, long defaultDelayMs) {
-        if ((statusCode == 403 || statusCode == 429) && response != null) {
-            String retryAfter = response.getHeaderString("retry-after");
-            if (retryAfter == null) retryAfter = response.getHeaderString("Retry-After");
+    private static void handleRetryAttemptDelay(RetryIterationHolderDTO retryIterationHolderDTO, int maxRetries) {
+
+        if (retryIterationHolderDTO.getHttpStatusCode() == Response.Status.OK.getStatusCode()) {
+
+            long calculatedDelay = parseRateLimitDelayMs(
+                    retryIterationHolderDTO.hasOccurredException(),
+                    retryIterationHolderDTO.getHttpStatusCode(),
+                    retryIterationHolderDTO.getResponseHeadersAsMap(),
+                    retryIterationHolderDTO.defaultDelayMs,
+                    retryIterationHolderDTO.currentAttemptsCount
+            );
+
+            retryIterationHolderDTO.logLevel = LogLevel.INFO;
+            retryIterationHolderDTO.logMessage = String.format(
+                    "**** SUCCESSFULLY GitHub API call returned status %s. Attempt %d/%d succeeded. ****",
+                    retryIterationHolderDTO.getHttpStatusCode(), retryIterationHolderDTO.currentAttemptsCount, maxRetries);
+
+            try {
+                Thread.sleep(calculatedDelay);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            }
+
+            retryIterationHolderDTO.mustBreakLoop = true;
+
+        } else {
+            long calculatedDelay = parseRateLimitDelayMs(
+                    retryIterationHolderDTO.hasOccurredException(),
+                    retryIterationHolderDTO.getHttpStatusCode(),
+                    retryIterationHolderDTO.getResponseHeadersAsMap(),
+                    retryIterationHolderDTO.defaultDelayMs,
+                    retryIterationHolderDTO.currentAttemptsCount
+            );
+
+            retryIterationHolderDTO.logLevel = LogLevel.WARN;
+
+            if (!retryIterationHolderDTO.hasOccurredException()) {
+                retryIterationHolderDTO.logMessage = String.format(
+                        "GitHub API call returned status %d. Attempt %d/%d failed. Retrying in %d ms...",
+                        retryIterationHolderDTO.getHttpStatusCode(), retryIterationHolderDTO.currentAttemptsCount, maxRetries, calculatedDelay);
+            } else {
+                retryIterationHolderDTO.logMessage = String.format(
+                        "GitHub API call via FeignClient failed (%s). Attempt %d/%d failed. Retrying in %d ms...",
+                        retryIterationHolderDTO.occurredException.getMessage(), retryIterationHolderDTO.currentAttemptsCount, maxRetries, calculatedDelay
+                );
+            }
+
+            if (retryIterationHolderDTO.currentAttemptsCount < maxRetries) {
+
+                try {
+                    Thread.sleep(calculatedDelay);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    retryIterationHolderDTO.mustBreakLoop = true;
+                }
+
+                if (!retryIterationHolderDTO.mustBreakLoop) {
+                    retryIterationHolderDTO.defaultDelayMs *= 2;
+                    retryIterationHolderDTO.mustContinueLoop = true;
+                }
+
+            } else {
+                retryIterationHolderDTO.logLevel = LogLevel.ERROR;
+                retryIterationHolderDTO.logMessage = String.format(
+                        "GitHub API request failed after max retries (%d): %s",
+                        maxRetries, retryIterationHolderDTO.occurredException.getMessage()
+                );
+            }
+
+        }
+
+    }
+
+    private static long parseRateLimitDelayMs(boolean hasOccurredException,
+                                              int statusCode,
+                                              Map<String, String> repsonseHeadersMap,
+                                              long defaultDelayMs,
+                                              int attemptsCount) {
+
+
+        if (repsonseHeadersMap != null) {
+            String retryAfter = getHeaderValue(repsonseHeadersMap, "retry-after", "Retry-After");
 
             if (retryAfter != null && !retryAfter.isBlank()) {
                 try {
                     long retrySec = Long.parseLong(retryAfter.trim());
                     if (retrySec > 0) {
-                        log.info("GitHub API 'retry-after' header detected: waiting " + retrySec + " seconds.");
-                        return Math.min(retrySec * 1000L, MAX_RETRY_DELAY_MS);
+                        if (statusCode >= 400 && statusCode <= 503) {
+                            if (!hasOccurredException) {
+                                log.infof("GitHub API 'retry-after' header detected: waiting {} seconds.", retrySec);
+                            } else {
+                                log.infof("GitHub API 'retry-after' header detected from FeignClient Exception: waiting {} seconds.", retrySec);
+                            }
+                        }
+                        return (Math.min(retrySec * 1000L, MAX_RETRY_DELAY_MS)) * attemptsCount;
                     }
-                } catch (NumberFormatException ignored) {}
+                } catch (NumberFormatException ignored) {
+
+                }
             }
 
-            String reset = response.getHeaderString("x-ratelimit-reset");
-            if (reset == null) reset = response.getHeaderString("X-RateLimit-Reset");
+            String reset = getHeaderValue(repsonseHeadersMap, "x-ratelimit-reset", "X-RateLimit-Reset");
 
             if (reset != null && !reset.isBlank()) {
                 try {
@@ -92,12 +186,89 @@ public class RetryAttemptsUtils {
                     long waitSec = resetEpochSec - currentEpochSec;
 
                     if (waitSec > 0) {
-                        log.info("GitHub API 'x-ratelimit-reset' header detected: waiting " + waitSec + " seconds until reset.");
-                        return Math.min(waitSec * 1000L, MAX_RETRY_DELAY_MS);
+                        if (statusCode >= 400 && statusCode <= 503) {
+                            if (!hasOccurredException) {
+                                log.infof("GitHub API 'x-ratelimit-reset' header detected: waiting {} seconds until reset.", waitSec);
+                            } else {
+                                log.infof("GitHub API 'x-ratelimit-reset' header detected from FeignClient Exception: waiting {} seconds until reset.", waitSec);
+                            }
+                        }
+                        return (Math.min(waitSec * 1000L, MAX_RETRY_DELAY_MS)) * attemptsCount;
                     }
                 } catch (NumberFormatException ignored) {}
             }
         }
-        return Math.min(defaultDelayMs, MAX_RETRY_DELAY_MS);
+
+        return Math.min(defaultDelayMs, MAX_RETRY_DELAY_MS) * attemptsCount;
+
     }
+
+    private static String getHeaderValue(Map<String, String> headers, String... keys) {
+
+        if (headers == null) {
+            return null;
+        }
+
+        for (String key : keys) {
+            if (headers.containsKey(key)) {
+                return headers.get(key);
+            }
+        }
+        return null;
+    }
+
+
+    private static class RetryIterationHolderDTO {
+        Response lastResponseReturned = null;
+        Exception occurredException = null;
+        LogLevel logLevel = LogLevel.WARN;
+        String logMessage = null;
+        long defaultDelayMs;
+        int currentAttemptsCount;
+        boolean mustBreakLoop = false;
+        boolean mustContinueLoop = false;
+
+        public boolean hasOccurredException() {
+            return (occurredException != null);
+        }
+
+        public int getHttpStatusCode() {
+            if (hasOccurredException()) {
+                return (occurredException instanceof WebApplicationException webEx) ? webEx.getResponse().getStatus() : 503;
+            } else {
+                return (lastResponseReturned != null) ? lastResponseReturned.getStatus() : 503;
+            }
+        }
+
+        public Map<String, String> getResponseHeadersAsMap() {
+
+            if (!hasOccurredException() && lastResponseReturned != null) {
+                Map<String, String> tempMap = new HashMap<>();
+                lastResponseReturned.getHeaders().forEach((key, values) -> {
+                    if (values != null && !values.isEmpty()) {
+                        tempMap.put(key, (String) values.iterator().next());
+                    } else {
+                        tempMap.put(key, null);
+                    }
+                });
+                return tempMap;
+            }
+
+            if (hasOccurredException() && occurredException instanceof WebApplicationException webEx) {
+                Map<String, String> tempMap = new HashMap<>();
+                webEx.getResponse().getHeaders().forEach((key, values) -> {
+                    if (values != null && !values.isEmpty()) {
+                        tempMap.put(key, (String) values.iterator().next());
+                    } else {
+                        tempMap.put(key, null);
+                    }
+                });
+                return tempMap;
+            }
+
+            return Map.of();
+        }
+
+    }
+
 }

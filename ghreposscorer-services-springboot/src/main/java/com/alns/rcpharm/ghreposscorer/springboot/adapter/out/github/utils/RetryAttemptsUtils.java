@@ -6,11 +6,9 @@ import feign.FeignException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.logging.LogLevel;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -25,7 +23,7 @@ public class RetryAttemptsUtils {
             Supplier<ResponseEntity<GitHubSearchResponseDto>> requestSupplier
     ) {
         ResponseEntity<GitHubSearchResponseDto> response = null;
-        RetryIteractionHolderDTO retryIteractionHolderDTO = new RetryIteractionHolderDTO();
+        RetryIterationHolderDTO retryIterationHolderDTO = new RetryIterationHolderDTO();
 
         int maxRetries = (
                 (scoreConfig != null && scoreConfig.maxRetriesAttempts() != null && scoreConfig.maxRetriesAttempts() > 0)
@@ -41,37 +39,37 @@ public class RetryAttemptsUtils {
         for (int attemptsCount = 1; attemptsCount <= maxRetries; attemptsCount++) {
 
             try {
-                retryIteractionHolderDTO.logLevel = LogLevel.INFO;
-                retryIteractionHolderDTO.currentAttemptsCount = attemptsCount;
+                retryIterationHolderDTO.logLevel = LogLevel.INFO;
+                retryIterationHolderDTO.currentAttemptsCount = attemptsCount;
 
                 response = requestSupplier.get();
 
-                retryIteractionHolderDTO.lastResponseReturned = response;
+                retryIterationHolderDTO.lastResponseReturned = response;
 
             } catch (Exception ex) {
-                retryIteractionHolderDTO.lastResponseReturned = response;
-                retryIteractionHolderDTO.occurredException = ex;
+                retryIterationHolderDTO.lastResponseReturned = response;
+                retryIterationHolderDTO.occurredException = ex;
             } // try
 
-            handleRetryAttemptDelay(retryIteractionHolderDTO, maxRetries);
+            handleRetryAttemptDelay(retryIterationHolderDTO, maxRetries);
 
-            switch (retryIteractionHolderDTO.logLevel) {
+            switch (retryIterationHolderDTO.logLevel) {
                 case WARN:
-                    log.warn(retryIteractionHolderDTO.logMessage);
+                    log.warn(retryIterationHolderDTO.logMessage);
                     break;
                 case ERROR:
-                    log.error(retryIteractionHolderDTO.logMessage);
+                    log.error(retryIterationHolderDTO.logMessage);
                     break;
                 default:
-                    log.info(retryIteractionHolderDTO.logMessage);
+                    log.info(retryIterationHolderDTO.logMessage);
                     break;
             }
 
-            if (retryIteractionHolderDTO.mustBreakLoop) {
+            if (retryIterationHolderDTO.mustBreakLoop) {
                 break;
             }
 
-            if (retryIteractionHolderDTO.mustContinueLoop) {
+            if (retryIterationHolderDTO.mustContinueLoop) {
                 continue;
             }
 
@@ -80,22 +78,22 @@ public class RetryAttemptsUtils {
         return response;
     }
 
-    private static void handleRetryAttemptDelay(RetryIteractionHolderDTO retryIteractionHolderDTO, int maxRetries) {
+    private static void handleRetryAttemptDelay(RetryIterationHolderDTO retryIterationHolderDTO, int maxRetries) {
 
-        if (retryIteractionHolderDTO.getHttpStatusCode() == HttpStatus.OK.value()) {
+        if (retryIterationHolderDTO.getHttpStatusCode() == HttpStatus.OK.value()) {
 
             long calculatedDelay = parseRateLimitDelayMs(
-                    retryIteractionHolderDTO.hasOccurredException(),
-                    retryIteractionHolderDTO.getHttpStatusCode(),
-                    retryIteractionHolderDTO.getResponseHeadersAsMap(),
-                    retryIteractionHolderDTO.defaultDelayMs,
-                    retryIteractionHolderDTO.currentAttemptsCount
+                    retryIterationHolderDTO.hasOccurredException(),
+                    retryIterationHolderDTO.getHttpStatusCode(),
+                    retryIterationHolderDTO.getResponseHeadersAsMap(),
+                    retryIterationHolderDTO.defaultDelayMs,
+                    retryIterationHolderDTO.currentAttemptsCount
             );
 
-            retryIteractionHolderDTO.logLevel = LogLevel.INFO;
-            retryIteractionHolderDTO.logMessage = String.format(
+            retryIterationHolderDTO.logLevel = LogLevel.INFO;
+            retryIterationHolderDTO.logMessage = String.format(
                     "**** SUCCESSFULLY GitHub API call returned status %s. Attempt %d/%d succeeded. ****",
-                    retryIteractionHolderDTO.getHttpStatusCode(), retryIteractionHolderDTO.currentAttemptsCount, maxRetries);
+                    retryIterationHolderDTO.getHttpStatusCode(), retryIterationHolderDTO.currentAttemptsCount, maxRetries);
 
             try {
                 Thread.sleep(calculatedDelay);
@@ -103,49 +101,49 @@ public class RetryAttemptsUtils {
                 Thread.currentThread().interrupt();
             }
 
-            retryIteractionHolderDTO.mustBreakLoop = true;
+            retryIterationHolderDTO.mustBreakLoop = true;
 
         } else {
             long calculatedDelay = parseRateLimitDelayMs(
-                    retryIteractionHolderDTO.hasOccurredException(),
-                    retryIteractionHolderDTO.getHttpStatusCode(),
-                    retryIteractionHolderDTO.getResponseHeadersAsMap(),
-                    retryIteractionHolderDTO.defaultDelayMs,
-                    retryIteractionHolderDTO.currentAttemptsCount
+                    retryIterationHolderDTO.hasOccurredException(),
+                    retryIterationHolderDTO.getHttpStatusCode(),
+                    retryIterationHolderDTO.getResponseHeadersAsMap(),
+                    retryIterationHolderDTO.defaultDelayMs,
+                    retryIterationHolderDTO.currentAttemptsCount
             );
 
-            retryIteractionHolderDTO.logLevel = LogLevel.WARN;
+            retryIterationHolderDTO.logLevel = LogLevel.WARN;
 
-            if (!retryIteractionHolderDTO.hasOccurredException()) {
-                retryIteractionHolderDTO.logMessage = String.format(
+            if (!retryIterationHolderDTO.hasOccurredException()) {
+                retryIterationHolderDTO.logMessage = String.format(
                         "GitHub API call returned status %d. Attempt %d/%d failed. Retrying in %d ms...",
-                        retryIteractionHolderDTO.getHttpStatusCode(), retryIteractionHolderDTO.currentAttemptsCount, maxRetries, calculatedDelay);
+                        retryIterationHolderDTO.getHttpStatusCode(), retryIterationHolderDTO.currentAttemptsCount, maxRetries, calculatedDelay);
             } else {
-                retryIteractionHolderDTO.logMessage = String.format(
+                retryIterationHolderDTO.logMessage = String.format(
                         "GitHub API call via FeignClient failed (%s). Attempt %d/%d failed. Retrying in %d ms...",
-                        retryIteractionHolderDTO.occurredException.getMessage(), retryIteractionHolderDTO.currentAttemptsCount, maxRetries, calculatedDelay
+                        retryIterationHolderDTO.occurredException.getMessage(), retryIterationHolderDTO.currentAttemptsCount, maxRetries, calculatedDelay
                 );
             }
 
-            if (retryIteractionHolderDTO.currentAttemptsCount < maxRetries) {
+            if (retryIterationHolderDTO.currentAttemptsCount < maxRetries) {
 
                 try {
                     Thread.sleep(calculatedDelay);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
-                    retryIteractionHolderDTO.mustBreakLoop = true;
+                    retryIterationHolderDTO.mustBreakLoop = true;
                 }
 
-                if (!retryIteractionHolderDTO.mustBreakLoop) {
-                    retryIteractionHolderDTO.defaultDelayMs *= 2;
-                    retryIteractionHolderDTO.mustContinueLoop = true;
+                if (!retryIterationHolderDTO.mustBreakLoop) {
+                    retryIterationHolderDTO.defaultDelayMs *= 2;
+                    retryIterationHolderDTO.mustContinueLoop = true;
                 }
 
             } else {
-                retryIteractionHolderDTO.logLevel = LogLevel.ERROR;
-                retryIteractionHolderDTO.logMessage = String.format(
+                retryIterationHolderDTO.logLevel = LogLevel.ERROR;
+                retryIterationHolderDTO.logMessage = String.format(
                         "GitHub API request failed after max retries (%d): %s",
-                        maxRetries, retryIteractionHolderDTO.occurredException.getMessage()
+                        maxRetries, retryIterationHolderDTO.occurredException.getMessage()
                 );
             }
 
@@ -222,7 +220,7 @@ public class RetryAttemptsUtils {
     }
 
 
-    private static class RetryIteractionHolderDTO {
+    private static class RetryIterationHolderDTO {
         ResponseEntity<GitHubSearchResponseDto> lastResponseReturned = null;
         Exception occurredException = null;
         LogLevel logLevel = LogLevel.WARN;
@@ -245,8 +243,6 @@ public class RetryAttemptsUtils {
         }
 
         public Map<String, String> getResponseHeadersAsMap() {
-            HttpHeaders headersFromResponse;
-            Map<String, Collection<String>> headersFromFeignException;
 
             if (!hasOccurredException() && lastResponseReturned != null) {
                 return lastResponseReturned.getHeaders().toSingleValueMap();
