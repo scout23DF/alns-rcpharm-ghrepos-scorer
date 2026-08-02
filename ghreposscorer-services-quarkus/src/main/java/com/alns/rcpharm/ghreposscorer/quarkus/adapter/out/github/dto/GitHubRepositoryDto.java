@@ -1,8 +1,10 @@
 package com.alns.rcpharm.ghreposscorer.quarkus.adapter.out.github.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.quarkus.runtime.annotations.RegisterForReflection;
 import java.time.Instant;
 
+@RegisterForReflection
 public class GitHubRepositoryDto {
     private String id;
     private String name;

@@ -1,9 +1,11 @@
 package com.alns.rcpharm.ghreposscorer.quarkus.adapter.out.github.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.quarkus.runtime.annotations.RegisterForReflection;
 import java.util.ArrayList;
 import java.util.List;
 
+@RegisterForReflection
 public class GitHubSearchResponseDto {
     @JsonProperty("total_count")
     private long totalCount;
