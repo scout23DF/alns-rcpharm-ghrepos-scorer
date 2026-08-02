@@ -5,6 +5,7 @@ import com.alns.rcpharm.ghreposscorer.domain.port.in.ListScoredGHReposRankingStr
 import com.alns.rcpharm.ghreposscorer.domain.port.in.ListScoredGHReposRankingUseCase;
 import io.quarkus.picocli.runtime.annotations.TopCommand;
 import jakarta.inject.Inject;
+import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
@@ -12,6 +13,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Scanner;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Flow;
@@ -19,7 +21,7 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * PicoCLI command for fetching and displaying GitHub repository popularity scores.
- * Supports both synchronous and reactive stream modes.
+ * Supports synchronous execution, reactive stream mode, and interactive REPL session mode.
  */
 @TopCommand
 @Command(
@@ -48,8 +50,29 @@ public class PopularityScoreCommand implements Callable<Integer> {
     @Option(names = {"-s", "--stream"}, description = "Fetch repositories reactively via reactive stream (Flow.Publisher / SSE)")
     boolean reactiveStream;
 
+    @Option(names = {"-i", "--interactive"}, description = "Run CLI in open interactive REPL session mode until '/q' or '/quit'")
+    boolean interactive;
+
+    public PopularityScoreCommand() {}
+
+    public PopularityScoreCommand(ListScoredGHReposRankingUseCase listScoredGHReposRankingUseCase,
+                                  ListScoredGHReposRankingStreamUseCase listScoredGHReposRankingStreamUseCase) {
+        this.listScoredGHReposRankingUseCase = listScoredGHReposRankingUseCase;
+        this.listScoredGHReposRankingStreamUseCase = listScoredGHReposRankingStreamUseCase;
+    }
+
     @Override
     public Integer call() {
+        executeSearch();
+
+        if (interactive) {
+            runInteractiveLoop();
+        }
+
+        return 0;
+    }
+
+    private void executeSearch() {
         LocalDate createdAfter = LocalDate.parse(createdAfterDate, DateTimeFormatter.ISO_LOCAL_DATE);
         System.out.printf("Fetching popular repositories for language '%s' created after %s (Limit: %d, Mode: %s)...%n%n",
                 language, createdAfter, limit, reactiveStream ? "REACTIVE STREAM" : "SYNCHRONOUS");
@@ -63,7 +86,7 @@ public class PopularityScoreCommand implements Callable<Integer> {
 
         if (scores.isEmpty()) {
             System.out.println("No repositories found matching the given criteria.");
-            return 0;
+            return;
         }
 
         System.out.println("==========================================================================================================");
@@ -84,8 +107,35 @@ public class PopularityScoreCommand implements Callable<Integer> {
                     score.repository().fullName());
         }
         System.out.println("==========================================================================================================");
+    }
 
-        return 0;
+    private void runInteractiveLoop() {
+        System.out.println("\nInteractive session started. Type options (e.g. -l Kotlin -n 5 -s) or '/q' / '/quit' to exit.");
+        Scanner scanner = new Scanner(System.in);
+        while (true) {
+            System.out.print("\nghreposscorer> ");
+            if (!scanner.hasNextLine()) {
+                break;
+            }
+            String input = scanner.nextLine().trim();
+            if (input.equalsIgnoreCase("/q") || input.equalsIgnoreCase("/quit")
+                    || input.equalsIgnoreCase("q") || input.equalsIgnoreCase("quit")
+                    || input.equalsIgnoreCase("exit")) {
+                System.out.println("Exiting GitHub Repositories Scorer CLI session. Goodbye!");
+                break;
+            }
+            if (input.isBlank()) {
+                continue;
+            }
+
+            String[] args = input.split("\\s+");
+            PopularityScoreCommand newCmd = new PopularityScoreCommand(
+                    this.listScoredGHReposRankingUseCase,
+                    this.listScoredGHReposRankingStreamUseCase
+            );
+            CommandLine commandLine = new CommandLine(newCmd);
+            commandLine.execute(args);
+        }
     }
 
     private List<PopularityScore> fetchScoresFromStream(String language, LocalDate createdAfter, int limit) {

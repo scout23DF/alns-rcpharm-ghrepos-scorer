@@ -219,9 +219,15 @@ docker-compose up --build
   java -jar ghreposscorer-util-cli/target/quarkus-app/quarkus-run.jar -l Java -n 10 -s
   ```
 
+- **Interactive REPL Session Mode (`-i` / `--interactive`)**:
+  ```bash
+  java -jar ghreposscorer-util-cli/target/quarkus-app/quarkus-run.jar -i
+  # In session: enter options like "-l Python -n 5 -s" or "/q" / "/quit" to exit
+  ```
+
 - **GraalVM Native Executable Binary**:
   ```bash
-  ./ghreposscorer-util-cli/target/ghreposscorer-util-cli-runner -l Java -n 10 -s
+  ./ghreposscorer-util-cli/target/ghreposscorer-util-cli-runner -l Java -n 10 -i
   ```
 
 ### 4. Deploy to Kubernetes
