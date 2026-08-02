@@ -1,4 +1,4 @@
-# Multi-stage Dockerfile based on Temurin JDK 25
+# Multi-stage Dockerfile based on Temurin JDK 25 for Quarkus JVM runner
 FROM eclipse-temurin:25-jdk-alpine AS builder
 RUN apk add --no-cache maven
 WORKDIR /app
@@ -16,7 +16,7 @@ RUN mvn clean package -DskipTests
 # Runtime stage using Temurin 25 JRE / JDK
 FROM eclipse-temurin:25-jdk-alpine
 WORKDIR /app
-COPY --from=builder /app/ghreposscorer-services-springboot/target/ghreposscorer-services-springboot-1.0.0-SNAPSHOT.jar app.jar
+COPY --from=builder /app/ghreposscorer-services-quarkus/target/quarkus-app/ /app/
 
-EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "app.jar"]
+EXPOSE 8081
+ENTRYPOINT ["java", "-Dquarkus.http.host=0.0.0.0", "-jar", "/app/quarkus-run.jar"]
